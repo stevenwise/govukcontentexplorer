@@ -11,6 +11,11 @@
     /* We deliberately do NOT load GDS Transport: it is licensed for real
        government services only, and this is not one. Arial fallback is correct. */
     body { font-family: Arial, Helvetica, sans-serif; }
+    /* GOV.UK caps the width container at 960px for readable prose; the Estate
+       results table needs more room, so lift the cap to a fixed 1200px. Fixed
+       (not a percentage) keeps line lengths sane on large monitors, and it still
+       falls back to 100% on narrow screens. */
+    .govuk-width-container { max-width: 1200px; }
     .app-disclaimer-footer {
       border-top: 4px solid #1d70b8;
       background: #f3f2f1;
