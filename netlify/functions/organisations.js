@@ -88,11 +88,14 @@ exports.handler = async () => {
     'Access-Control-Allow-Origin': '*',
     'Cache-Control': 'public, max-age=900',
   };
+  // Errors must never be cached, or a transient failure sticks around for the
+  // whole 15-minute window (e.g. a missing CONTACT_EMAIL on first deploy).
+  const noCache = { ...cors, 'Cache-Control': 'no-store' };
 
   if (!CONTACT_EMAIL) {
     return {
       statusCode: 500,
-      headers: cors,
+      headers: noCache,
       body: JSON.stringify({
         error: 'CONTACT_EMAIL environment variable is not set. GOV.UK requires an ' +
                'identifying contact email in the outbound User-Agent. Set CONTACT_EMAIL ' +
@@ -114,7 +117,7 @@ exports.handler = async () => {
     console.error('[organisations] upstream error:', e.message);
     return {
       statusCode: 502,
-      headers: cors,
+      headers: noCache,
       body: JSON.stringify({ error: 'Could not fetch the organisation list from GOV.UK: ' + e.message }),
     };
   }
