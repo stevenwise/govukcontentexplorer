@@ -70,10 +70,6 @@
     .app-card .app-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
     /* Path as a small grey line under the title */
     .app-path { display: block; font-size: 0.75rem; color: #505a5f; white-space: nowrap; }
-    /* Days-since bar-in-cell */
-    .app-days-cell { position: relative; }
-    .app-days-bar { position: absolute; left: 0; top: 4px; bottom: 4px; background: #b3c9e0; opacity: 0.55; z-index: 0; }
-    .app-days-val { position: relative; z-index: 1; }
     /* Filter chips */
     .app-chips { margin: 6px 0 12px; }
     .app-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -205,7 +201,6 @@
           <div id="estate-results" class="app-hidden">
             <h3 class="govuk-heading-l">Results</h3>
             <div class="govuk-grid-row" id="estate-cards"></div>
-            <p class="govuk-body" id="estate-oldest"></p>
 
             <div class="app-panel">
               <h4 class="govuk-heading-s">Items by year of last update</h4>

@@ -494,6 +494,14 @@ function selectOrg(o) {
   el('estate-org-selected-name').textContent = o.title === o.slug ? o.slug : `${o.title} (${o.slug})`;
   sel.classList.remove('app-hidden');
   el('estate-fetch').disabled = false;
+  // Clear the previous org's breakdown and results so nothing stale lingers
+  // until the new org's breakdown is fetched.
+  if (!estate.restoring) {
+    el('estate-aggregate').classList.add('app-hidden');
+    el('estate-results').classList.add('app-hidden');
+    el('estate-status').textContent = '';
+    estate.rows = [];
+  }
   updateUrl();
 }
 
@@ -801,13 +809,6 @@ function renderCards() {
        <h4 class="govuk-heading-s govuk-!-margin-bottom-2">Count per content type</h4>
        <table class="govuk-table govuk-!-margin-bottom-0"><tbody class="govuk-table__body">${typeRows}</tbody></table>
      </div></div>`;
-
-  // Oldest item in the selection (largest days-since-update), linked.
-  const withDates = rows.filter(r => r.days != null);
-  const oldest = withDates.length ? withDates.reduce((a, b) => (b.days > a.days ? b : a)) : null;
-  el('estate-oldest').innerHTML = oldest
-    ? `<strong>Oldest item:</strong> <a class="govuk-link" href="${GOVUK}${esc(oldest.path)}" target="_blank" rel="noopener">${esc(oldest.title)}</a> — last updated ${fmtDate(oldest.updated)} (${oldest.days.toLocaleString('en-GB')} days ago).`
-    : '';
 }
 
 function renderYearBar() {
@@ -914,20 +915,12 @@ function renderTable() {
   const start = (estate.page - 1) * PAGE_ROWS;
   const pageRows = rows.slice(start, start + PAGE_ROWS);
 
-  // Bar-in-cell for days, scaled to the max in the current (filtered) result set
-  const maxDays = rows.reduce((m, r) => (r.days != null && r.days > m ? r.days : m), 0) || 1;
-
   el('estate-tbody').innerHTML = pageRows.map(r => {
     const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
     const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
     const withdrawnCell = r.withdrawn
       ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
       : '<span class="app-muted">—</span>';
-    const barPct = r.days == null ? 0 : Math.max(1, Math.round((r.days / maxDays) * 100));
-    const daysCell = r.days == null
-      ? '<span class="app-muted">—</span>'
-      : `<div class="app-days-bar" style="width:${barPct}%"></div>
-         <span class="app-days-val">${r.days.toLocaleString('en-GB')}${staleTag(r.days)}</span>`;
     return `<tr class="govuk-table__row${cls}">
       <td class="govuk-table__cell app-break">
         <a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a>
@@ -936,7 +929,7 @@ function renderTable() {
       <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
       <td class="govuk-table__cell">${fmtDate(r.updated)}</td>
-      <td class="govuk-table__cell app-days-cell">${daysCell}</td>
+      <td class="govuk-table__cell">${r.days == null ? '—' : r.days.toLocaleString('en-GB')}${staleTag(r.days)}</td>
       <td class="govuk-table__cell">${withdrawnCell}</td>
     </tr>`;
   }).join('');
