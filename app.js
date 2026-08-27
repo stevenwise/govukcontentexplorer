@@ -419,7 +419,13 @@ const estate = {
   activeIndex: -1,     // combobox keyboard highlight
   filtered: [],        // current filtered orgs
   restoring: false,    // true while rebuilding a view from the URL (suppresses URL churn + confirms)
+  page: 1,             // table page (50 rows/page)
+  typeChips: new Set(),// active content-type filter chips
+  staleChip: null,     // active staleness band: under1 | 1to5 | over5 | over10 | null
+  yearFilter: null,    // year selected from the chart, or null
 };
+
+const PAGE_ROWS = 50;
 
 async function loadOrganisations() {
   // Primary: the Netlify Function (the one CORS-blocked endpoint).
@@ -535,13 +541,24 @@ async function fetchAggregate() {
 
 function renderTypeCheckboxes() {
   const box = el('estate-checkboxes');
-  box.innerHTML = estate.formats.map(f => `
+  const fmts = estate.formats;
+  const cbHtml = (f) => `
     <div class="govuk-checkboxes__item">
       <input class="govuk-checkboxes__input" id="cb-${esc(f.slug)}" type="checkbox" value="${esc(f.slug)}">
       <label class="govuk-label govuk-checkboxes__label" for="cb-${esc(f.slug)}">
         ${esc(f.slug)} <span class="app-muted">(${f.documents.toLocaleString('en-GB')})</span>
-      </label>
-    </div>`).join('');
+      </label>`.concat('</div>');
+
+  const top = fmts.slice(0, 10);
+  const rest = fmts.slice(10);
+  let html = top.map(cbHtml).join('');
+  if (rest.length) {
+    html += `<details class="govuk-details govuk-!-margin-top-2 govuk-!-margin-bottom-0" id="estate-types-more">
+      <summary class="govuk-details__summary"><span class="govuk-details__summary-text">Show all ${fmts.length} types</span></summary>
+      <div class="govuk-details__text">${rest.map(cbHtml).join('')}</div>
+    </details>`;
+  }
+  box.innerHTML = html;
   box.querySelectorAll('input[type=checkbox]').forEach(cb =>
     cb.addEventListener('change', updateProjection));
 }
@@ -566,6 +583,10 @@ function setGuidanceTypes() {
   el('estate-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => {
     cb.checked = GUIDANCE_TYPES.includes(cb.value);
   });
+  // Most guidance types sit below the top-10 cut, inside the disclosure — open
+  // it so the ticked ones are visible.
+  const more = el('estate-types-more');
+  if (more && more.querySelector('input:checked')) more.open = true;
   updateProjection();
 }
 
@@ -689,9 +710,14 @@ async function fetchResults() {
 
   estate.rows = rows;
   estate.sort = { key: 'days', dir: 'desc' };
+  estate.page = 1;
+  estate.typeChips = new Set();
+  estate.staleChip = null;
+  estate.yearFilter = null;
   updateWithdrawnToggle();
   renderCards();
   renderYearBar();
+  renderChips();
   renderTable();
   el('estate-results').classList.remove('app-hidden');
   el('estate-breakdown-details').open = false; // fold the tall breakdown away so results sit near the button
@@ -798,12 +824,23 @@ function renderYearBar() {
     for (let y = years[0]; y <= years[years.length - 1]; y++) labels.push(y); // fill gaps
   }
 
+  const colours = labels.map(y => (estate.yearFilter === y ? '#d4351c' : '#1d70b8'));
   estate.yearbar = new Chart(el('estate-yearbar').getContext('2d'), {
     type: 'bar',
-    data: { labels, datasets: [{ data: labels.map(y => byYear[y] || 0), backgroundColor: '#1d70b8' }] },
+    data: { labels, datasets: [{ data: labels.map(y => byYear[y] || 0), backgroundColor: colours }] },
     options: {
       maintainAspectRatio: false, responsive: true, animation: false,
-      plugins: { legend: { display: false } },
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const y = labels[els[0].index];
+        estate.yearFilter = (estate.yearFilter === y ? null : y); // toggle
+        estate.page = 1;
+        renderYearBar(); renderChips(); renderTable();
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { footer: () => 'Click to filter the table to this year' } },
+      },
       scales: { x: { ticks: { autoSkip: false, maxRotation: 90, minRotation: 45, font: { size: 10 } } },
                 y: { beginAtZero: true } },
     },
@@ -812,7 +849,6 @@ function renderYearBar() {
 
 const COLUMNS = [
   { key: 'title', label: 'Title' },
-  { key: 'path', label: 'Path' },
   { key: 'owner', label: 'Editorial owner' },
   { key: 'format', label: 'Content type' },
   { key: 'updated', label: 'Last updated' },
@@ -820,10 +856,31 @@ const COLUMNS = [
   { key: 'withdrawn', label: 'Withdrawn' },
 ];
 
+// Middle-truncate a path so both ends stay visible; full path shown on hover.
+function midTruncate(s, max = 60) {
+  if (!s || s.length <= max) return s || '';
+  const keep = max - 1, front = Math.ceil(keep / 2), back = Math.floor(keep / 2);
+  return s.slice(0, front) + '…' + s.slice(s.length - back);
+}
+
+function bandMatch(days, band) {
+  if (days == null) return false;
+  if (band === 'under1') return days < 365;
+  if (band === '1to5') return days >= 365 && days <= AMBER_DAYS;
+  if (band === 'over5') return days > AMBER_DAYS;
+  if (band === 'over10') return days > RED_DAYS;
+  return true;
+}
+
+// The fully filtered, sorted result set (working set → text → chips → year →
+// sort). Everything downstream — count, pagination, CSV — reads this.
 function sortedFilteredRows() {
   const q = (el('estate-table-filter').value || '').trim().toLowerCase();
   let rows = baseRows();
   if (q) rows = rows.filter(r => r.title.toLowerCase().includes(q) || r.path.toLowerCase().includes(q));
+  if (estate.typeChips.size) rows = rows.filter(r => estate.typeChips.has(r.format));
+  if (estate.staleChip) rows = rows.filter(r => bandMatch(r.days, estate.staleChip));
+  if (estate.yearFilter != null) rows = rows.filter(r => r.updated && new Date(r.updated).getFullYear() === estate.yearFilter);
   const { key, dir } = estate.sort;
   const mul = dir === 'asc' ? 1 : -1;
   rows = rows.slice().sort((a, b) => {
@@ -850,29 +907,75 @@ function renderTable() {
     `${rows.length.toLocaleString('en-GB')} shown of ${workingTotal.toLocaleString('en-GB')}` +
     (rows.length !== workingTotal ? ' (filtered)' : '');
 
-  const MAX_RENDER = 2000; // keep the DOM manageable; CSV always has everything
-  const slice = rows.slice(0, MAX_RENDER);
-  el('estate-tbody').innerHTML = slice.map(r => {
+  // Pagination
+  const pages = Math.max(1, Math.ceil(rows.length / PAGE_ROWS));
+  if (estate.page > pages) estate.page = pages;
+  if (estate.page < 1) estate.page = 1;
+  const start = (estate.page - 1) * PAGE_ROWS;
+  const pageRows = rows.slice(start, start + PAGE_ROWS);
+
+  // Bar-in-cell for days, scaled to the max in the current (filtered) result set
+  const maxDays = rows.reduce((m, r) => (r.days != null && r.days > m ? r.days : m), 0) || 1;
+
+  el('estate-tbody').innerHTML = pageRows.map(r => {
     const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
     const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
     const withdrawnCell = r.withdrawn
       ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
       : '<span class="app-muted">—</span>';
+    const barPct = r.days == null ? 0 : Math.max(1, Math.round((r.days / maxDays) * 100));
+    const daysCell = r.days == null
+      ? '<span class="app-muted">—</span>'
+      : `<div class="app-days-bar" style="width:${barPct}%"></div>
+         <span class="app-days-val">${r.days.toLocaleString('en-GB')}${staleTag(r.days)}</span>`;
     return `<tr class="govuk-table__row${cls}">
-      <td class="govuk-table__cell app-break"><a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a></td>
-      <td class="govuk-table__cell app-break">${esc(r.path)}</td>
+      <td class="govuk-table__cell app-break">
+        <a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+        <span class="app-path" title="${esc(r.path)}">${esc(midTruncate(r.path))}</span>
+      </td>
       <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
       <td class="govuk-table__cell">${fmtDate(r.updated)}</td>
-      <td class="govuk-table__cell">${r.days == null ? '—' : r.days.toLocaleString('en-GB')}${staleTag(r.days)}</td>
+      <td class="govuk-table__cell app-days-cell">${daysCell}</td>
       <td class="govuk-table__cell">${withdrawnCell}</td>
     </tr>`;
   }).join('');
 
-  if (rows.length > MAX_RENDER) {
-    el('estate-tbody').innerHTML +=
-      `<tr class="govuk-table__row"><td class="govuk-table__cell app-muted" colspan="${COLUMNS.length}">Showing first ${MAX_RENDER.toLocaleString('en-GB')} rows. Filter to narrow, or use Download CSV for the full set.</td></tr>`;
-  }
+  renderPagination(estate.page, pages, rows.length, start, pageRows.length);
+}
+
+function renderPagination(page, pages, total, start, shown) {
+  const box = el('estate-pagination');
+  if (!total) { box.innerHTML = ''; return; }
+  const from = start + 1, to = start + shown;
+  box.innerHTML = `
+    <div class="app-pager">
+      <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" data-page="prev" ${page <= 1 ? 'disabled' : ''}>Previous</button>
+      <span class="govuk-body-s app-muted" style="margin:0 12px;">Page ${page} of ${pages} — rows ${from.toLocaleString('en-GB')}–${to.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')}</span>
+      <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" data-page="next" ${page >= pages ? 'disabled' : ''}>Next</button>
+    </div>`;
+}
+
+// Content-type + staleness-band filter chips, plus a year chip when the chart
+// is filtered. Applied client-side; no re-fetch.
+function renderChips() {
+  const types = [...new Set(baseRows().map(r => r.format))].sort();
+  const chip = (kind, val, label, active) =>
+    `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-chip="${kind}" data-val="${esc(val)}">${esc(label)}</button>`;
+
+  const typeHtml = types.map(t => chip('type', t, t, estate.typeChips.has(t))).join(' ');
+  const bands = [['under1', 'Under 1 year'], ['1to5', '1 to 5 years'], ['over5', 'Over 5 years'], ['over10', 'Over 10 years']];
+  const bandHtml = bands.map(([k, l]) => chip('stale', k, l, estate.staleChip === k)).join(' ');
+  const yearHtml = estate.yearFilter != null
+    ? `<button type="button" class="app-chip app-chip--active" data-chip="year" data-val="${estate.yearFilter}">Year: ${estate.yearFilter} ✕</button>`
+    : '';
+  const anyActive = estate.typeChips.size || estate.staleChip || estate.yearFilter != null || (el('estate-table-filter').value || '').trim();
+
+  el('estate-chips').innerHTML =
+    `<div class="app-chip-row"><span class="app-chip-label">Content type</span>${typeHtml || '<span class="app-muted">—</span>'}</div>` +
+    `<div class="app-chip-row"><span class="app-chip-label">Staleness</span>${bandHtml} ${yearHtml}` +
+    (anyActive ? ` <button type="button" class="app-chip app-chip--clear" data-chip="clear" data-val="">Clear filters</button>` : '') +
+    `</div>`;
 }
 
 function downloadCsv() {
@@ -950,6 +1053,7 @@ async function restoreFromUrl() {
       if (wcb && !wcb.disabled) wcb.checked = st.withdrawn;
       renderCards();
       renderYearBar();
+      renderChips();
       renderTable();
     }
   } finally {
@@ -1007,9 +1111,9 @@ function setupEstate() {
 
   // Results controls
   el('estate-get-results').addEventListener('click', fetchResults);
-  el('estate-table-filter').addEventListener('input', () => { renderTable(); updateUrl(); });
+  el('estate-table-filter').addEventListener('input', () => { estate.page = 1; renderChips(); renderTable(); updateUrl(); });
   el('estate-show-withdrawn').addEventListener('change', () => {
-    renderCards(); renderYearBar(); renderTable(); updateUrl();
+    estate.page = 1; renderCards(); renderYearBar(); renderChips(); renderTable(); updateUrl();
   });
   el('estate-csv').addEventListener('click', downloadCsv);
   el('estate-thead').addEventListener('click', (e) => {
@@ -1017,9 +1121,38 @@ function setupEstate() {
     if (!th) return;
     const key = th.dataset.key;
     if (estate.sort.key === key) estate.sort.dir = estate.sort.dir === 'asc' ? 'desc' : 'asc';
-    else estate.sort = { key, dir: key === 'title' || key === 'path' || key === 'format' ? 'asc' : 'desc' };
+    else estate.sort = { key, dir: key === 'title' || key === 'format' || key === 'owner' ? 'asc' : 'desc' };
+    estate.page = 1;
     renderTable();
     updateUrl();
+  });
+
+  // Filter chips (content type, staleness band, year)
+  el('estate-chips').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-chip]');
+    if (!btn) return;
+    const { chip, val } = btn.dataset;
+    if (chip === 'type') {
+      if (estate.typeChips.has(val)) estate.typeChips.delete(val); else estate.typeChips.add(val);
+    } else if (chip === 'stale') {
+      estate.staleChip = estate.staleChip === val ? null : val;
+    } else if (chip === 'year') {
+      estate.yearFilter = null; renderYearBar();
+    } else if (chip === 'clear') {
+      estate.typeChips = new Set(); estate.staleChip = null;
+      estate.yearFilter = null; el('estate-table-filter').value = ''; renderYearBar();
+    }
+    estate.page = 1;
+    renderChips(); renderTable(); updateUrl();
+  });
+
+  // Pagination
+  el('estate-pagination').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-page]');
+    if (!btn || btn.disabled) return;
+    estate.page += btn.dataset.page === 'next' ? 1 : -1;
+    renderTable();
+    el('estate-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
 }
 

@@ -68,6 +68,27 @@
     th.app-sort .app-arrow { color: #505a5f; font-size: 0.8em; }
     .app-card { border: 1px solid #b1b4b6; padding: 12px 15px; margin-bottom: 15px; background: #fff; height: 100%; }
     .app-card .app-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+    /* Path as a small grey line under the title */
+    .app-path { display: block; font-size: 0.75rem; color: #505a5f; white-space: nowrap; }
+    /* Days-since bar-in-cell */
+    .app-days-cell { position: relative; }
+    .app-days-bar { position: absolute; left: 0; top: 4px; bottom: 4px; background: #b3c9e0; opacity: 0.55; z-index: 0; }
+    .app-days-val { position: relative; z-index: 1; }
+    /* Filter chips */
+    .app-chips { margin: 6px 0 12px; }
+    .app-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .app-chip-label { font-size: 0.8rem; font-weight: 700; color: #505a5f; margin-right: 4px; min-width: 92px; }
+    .app-chip {
+      font-size: 0.8125rem; line-height: 1; padding: 6px 10px; border: 1px solid #b1b4b6;
+      background: #fff; color: #0b0c0c; border-radius: 14px; cursor: pointer;
+    }
+    .app-chip:hover { border-color: #0b0c0c; }
+    .app-chip--active { background: #1d70b8; border-color: #1d70b8; color: #fff; }
+    .app-chip--clear { border-color: #d4351c; color: #d4351c; border-radius: 4px; }
+    .app-chip--clear:hover { background: #d4351c; color: #fff; }
+    /* Count + CSV row, and pager */
+    .app-results-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .app-pager { display: flex; align-items: center; margin-top: 12px; }
     .app-typebar-track { background: #f3f2f1; height: 16px; width: 100%; }
     .app-typebar-fill { height: 16px; min-width: 3px; }
     #estate-cards .govuk-table__cell { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
@@ -192,16 +213,9 @@
             </div>
 
             <div class="app-panel">
-              <div class="govuk-grid-row">
-                <div class="govuk-grid-column-two-thirds">
-                  <div class="govuk-form-group govuk-!-margin-bottom-2">
-                    <label class="govuk-label" for="estate-table-filter">Filter by title or path</label>
-                    <input class="govuk-input" id="estate-table-filter" type="text" autocomplete="off">
-                  </div>
-                </div>
-                <div class="govuk-grid-column-one-third" style="text-align:right;">
-                  <button class="govuk-button govuk-button--secondary govuk-!-margin-top-6" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
-                </div>
+              <div class="govuk-form-group govuk-!-margin-bottom-2">
+                <label class="govuk-label" for="estate-table-filter">Filter by title or path</label>
+                <input class="govuk-input" id="estate-table-filter" type="text" autocomplete="off">
               </div>
               <div class="govuk-checkboxes govuk-checkboxes--small govuk-!-margin-bottom-2">
                 <div class="govuk-checkboxes__item">
@@ -211,13 +225,23 @@
                   </label>
                 </div>
               </div>
-              <p class="govuk-body-s app-muted" id="estate-table-count"></p>
+
+              <!-- Filter chips -->
+              <div id="estate-chips" class="app-chips"></div>
+
+              <!-- Count + CSV together -->
+              <div class="app-results-bar">
+                <p class="govuk-body-s app-muted govuk-!-margin-bottom-0" id="estate-table-count"></p>
+                <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
+              </div>
+
               <div style="overflow-x:auto;">
                 <table class="govuk-table" id="estate-table">
                   <thead class="govuk-table__head" id="estate-thead"></thead>
                   <tbody class="govuk-table__body" id="estate-tbody"></tbody>
                 </table>
               </div>
+              <div id="estate-pagination"></div>
             </div>
           </div>
         </div>
