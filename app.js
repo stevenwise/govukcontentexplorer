@@ -418,6 +418,7 @@ const estate = {
   chart: null,
   activeIndex: -1,     // combobox keyboard highlight
   filtered: [],        // current filtered orgs
+  restoring: false,    // true while rebuilding a view from the URL (suppresses URL churn + confirms)
 };
 
 async function loadOrganisations() {
@@ -487,6 +488,7 @@ function selectOrg(o) {
   el('estate-org-selected-name').textContent = o.title === o.slug ? o.slug : `${o.title} (${o.slug})`;
   sel.classList.remove('app-hidden');
   el('estate-fetch').disabled = false;
+  updateUrl();
 }
 
 function moveActive(delta) {
@@ -556,6 +558,7 @@ function updateProjection() {
     ? `${checked.size} content type${checked.size === 1 ? '' : 's'} selected`
     : 'Tick content types below.';
   el('estate-get-results').disabled = checked.size === 0;
+  updateUrl();
 }
 
 function setGuidanceTypes() {
@@ -633,7 +636,7 @@ async function fetchResults() {
   const types = checkedTypes();
   if (!estate.selected || !types.length) return;
 
-  if (estate.projected > 10000 &&
+  if (!estate.restoring && estate.projected > 10000 &&
       !confirm(`This selection is about ${estate.projected.toLocaleString('en-GB')} items. ` +
                `Pulling them all takes roughly ${Math.ceil(estate.projected / PAGE_SIZE)} requests to GOV.UK. Continue?`)) {
     return;
@@ -684,7 +687,8 @@ async function fetchResults() {
   el('estate-results').classList.remove('app-hidden');
   el('estate-breakdown-details').open = false; // fold the tall breakdown away so results sit near the button
   el('estate-get-results').disabled = false;
-  el('estate-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  updateUrl();
+  if (!estate.restoring) el('estate-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderCards() {
@@ -832,6 +836,64 @@ function downloadCsv() {
   URL.revokeObjectURL(url);
 }
 
+/* ---------- Estate view: URL state (deep links) ---------- */
+
+// Serialise the current estate view into the query string. replaceState keeps
+// the URL in sync without stacking a history entry per keystroke, so browser
+// back/forward move between whole pages rather than every micro-change.
+function updateUrl() {
+  if (estate.restoring) return; // don't fight the restore in progress
+  const p = new URLSearchParams();
+  if (estate.selected) p.set('org', estate.selected.slug);
+  const types = checkedTypes();
+  if (types.length) p.set('types', types.join(','));
+  if (estate.sort && estate.sort.key) { p.set('sort', estate.sort.key); p.set('dir', estate.sort.dir); }
+  const q = (el('estate-table-filter').value || '').trim();
+  if (q) p.set('q', q);
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+}
+
+function readStateFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const org = p.get('org');
+  if (!org) return null;
+  return {
+    org,
+    types: (p.get('types') || '').split(',').map(s => s.trim()).filter(Boolean),
+    sort: p.get('sort') ? { key: p.get('sort'), dir: p.get('dir') === 'asc' ? 'asc' : 'desc' } : null,
+    q: p.get('q') || '',
+  };
+}
+
+// Rebuild the whole view from the URL on load: select the org, fetch the
+// breakdown, restore ticked types, and if any are present pull the results and
+// apply the saved sort + filter.
+async function restoreFromUrl() {
+  const st = readStateFromUrl();
+  if (!st) return;
+  estate.restoring = true;
+  try {
+    showView('estate');
+    const found = estate.orgs.find(o => o.slug === st.org) || { slug: st.org, title: st.org };
+    selectOrg(found);
+    await fetchAggregate();
+    if (st.types.length) {
+      el('estate-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => {
+        cb.checked = st.types.includes(cb.value);
+      });
+      updateProjection();
+      await fetchResults();
+      if (st.sort) estate.sort = st.sort;
+      el('estate-table-filter').value = st.q;
+      renderTable();
+    }
+  } finally {
+    estate.restoring = false;
+    updateUrl(); // write the canonical, fully-restored URL once
+  }
+}
+
 function setupEstate() {
   const search = el('estate-org-search');
 
@@ -844,6 +906,7 @@ function setupEstate() {
     } else {
       el('estate-org-hint').textContent = `Type to search by title or slug. ${estate.orgs.length.toLocaleString('en-GB')} organisations.`;
     }
+    restoreFromUrl(); // deep-link: rebuild the view if the URL carries one
   });
 
   search.addEventListener('input', () => { estate.selected = null; el('estate-fetch').disabled = true; renderOrgOptions(search.value); });
@@ -880,7 +943,7 @@ function setupEstate() {
 
   // Results controls
   el('estate-get-results').addEventListener('click', fetchResults);
-  el('estate-table-filter').addEventListener('input', renderTable);
+  el('estate-table-filter').addEventListener('input', () => { renderTable(); updateUrl(); });
   el('estate-csv').addEventListener('click', downloadCsv);
   el('estate-thead').addEventListener('click', (e) => {
     const th = e.target.closest('.app-sort');
@@ -889,6 +952,7 @@ function setupEstate() {
     if (estate.sort.key === key) estate.sort.dir = estate.sort.dir === 'asc' ? 'desc' : 'asc';
     else estate.sort = { key, dir: key === 'title' || key === 'path' || key === 'format' ? 'asc' : 'desc' };
     renderTable();
+    updateUrl();
   });
 }
 
