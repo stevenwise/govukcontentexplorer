@@ -56,6 +56,8 @@
     }
     tr.app-row-amber > td { background: #fff7e6; }
     tr.app-row-red > td { background: #fbeceb; }
+    tr.app-row-withdrawn > td:first-child { border-left: 4px solid #4c2c92; }
+    tr.app-row-withdrawn > td { opacity: 0.85; }
     th.app-sort { cursor: pointer; white-space: nowrap; }
     th.app-sort:hover { text-decoration: underline; }
     th.app-sort .app-arrow { color: #505a5f; font-size: 0.8em; }
@@ -193,6 +195,14 @@
                 </div>
                 <div class="govuk-grid-column-one-third" style="text-align:right;">
                   <button class="govuk-button govuk-button--secondary govuk-!-margin-top-6" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
+                </div>
+              </div>
+              <div class="govuk-checkboxes govuk-checkboxes--small govuk-!-margin-bottom-2">
+                <div class="govuk-checkboxes__item">
+                  <input class="govuk-checkboxes__input" id="estate-show-withdrawn" type="checkbox">
+                  <label class="govuk-label govuk-checkboxes__label" for="estate-show-withdrawn">
+                    Show withdrawn pages <span id="estate-withdrawn-count" class="app-muted"></span>
+                  </label>
                 </div>
               </div>
               <p class="govuk-body-s app-muted" id="estate-table-count"></p>

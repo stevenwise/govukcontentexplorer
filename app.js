@@ -646,9 +646,14 @@ async function fetchResults() {
   el('estate-get-results').disabled = true;
   el('estate-results').classList.add('app-hidden');
 
+  // include_withdrawn brings withdrawn pages into the pull (GOV.UK's default
+  // search hides them). They are hidden in the table by default and revealed
+  // with the "Show withdrawn pages" toggle. organisations[0] is the editorial
+  // owner; is_withdrawn is a boolean. All ride along on the same request.
   const base = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(estate.selected.slug) +
     types.map(t => '&filter_format=' + encodeURIComponent(t)).join('') +
-    '&fields=title&fields=link&fields=format&fields=public_timestamp';
+    '&fields=title&fields=link&fields=format&fields=public_timestamp&fields=organisations&fields=is_withdrawn' +
+    '&debug=include_withdrawn';
 
   const rows = [];
   let start = 0, total = null;
@@ -668,6 +673,8 @@ async function fetchResults() {
         format: x.format || '',
         updated: x.public_timestamp || null,
         days: daysSince(x.public_timestamp),
+        owner: (Array.isArray(x.organisations) && x.organisations[0] && x.organisations[0].title) || '',
+        withdrawn: !!x.is_withdrawn,
       }));
       start += PAGE_SIZE;
       if (!batch.length) break; // safety against an infinite loop
@@ -681,6 +688,7 @@ async function fetchResults() {
 
   estate.rows = rows;
   estate.sort = { key: 'days', dir: 'desc' };
+  updateWithdrawnToggle();
   renderCards();
   renderYearBar();
   renderTable();
@@ -691,12 +699,33 @@ async function fetchResults() {
   if (!estate.restoring) el('estate-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// Withdrawn pages are fetched but hidden by default; the working set is the
+// fetched rows minus withdrawn unless the toggle is on. Cards, charts, table
+// and CSV all derive from this so counts stay consistent.
+function withdrawnShown() {
+  const cb = el('estate-show-withdrawn');
+  return !!(cb && cb.checked);
+}
+
+function baseRows() {
+  return withdrawnShown() ? estate.rows : estate.rows.filter(r => !r.withdrawn);
+}
+
+function updateWithdrawnToggle() {
+  const n = (estate.rows || []).filter(r => r.withdrawn).length;
+  const cb = el('estate-show-withdrawn');
+  const label = el('estate-withdrawn-count');
+  if (label) label.textContent = n ? `(${n.toLocaleString('en-GB')})` : '(none)';
+  if (cb) cb.disabled = n === 0;
+}
+
 function renderCards() {
-  const rows = estate.rows;
+  const rows = baseRows();
   const now = Date.now();
   const within12m = rows.filter(r => r.updated && (now - Date.parse(r.updated)) < 365 * DAY).length;
   const over5 = rows.filter(r => r.days != null && r.days > AMBER_DAYS).length;
   const over10 = rows.filter(r => r.days != null && r.days > RED_DAYS).length;
+  const owners = new Set(rows.map(r => r.owner).filter(Boolean));
 
   const byType = {};
   rows.forEach(r => { byType[r.format] = (byType[r.format] || 0) + 1; });
@@ -728,6 +757,8 @@ function renderCards() {
 
   el('estate-cards').innerHTML =
     card('Total items', rows.length.toLocaleString('en-GB'), estate.selected.slug) +
+    card('Distinct editorial owners', owners.size.toLocaleString('en-GB'),
+         owners.size > 1 ? 'the estate includes pages owned by others' : 'all one owner') +
     card('Updated in last 12 months', within12m.toLocaleString('en-GB'), 'by last-updated date') +
     card('Not updated in over 5 years', over5.toLocaleString('en-GB'), '&gt; 1,825 days') +
     card('Not updated in over 10 years', over10.toLocaleString('en-GB'), '&gt; 3,650 days') +
@@ -740,7 +771,7 @@ function renderCards() {
 function renderYearBar() {
   if (estate.yearbar) { estate.yearbar.destroy(); estate.yearbar = null; }
   const byYear = {};
-  estate.rows.forEach(r => {
+  baseRows().forEach(r => {
     if (!r.updated) return;
     const y = new Date(r.updated).getFullYear();
     if (!isNaN(y)) byYear[y] = (byYear[y] || 0) + 1;
@@ -766,14 +797,16 @@ function renderYearBar() {
 const COLUMNS = [
   { key: 'title', label: 'Title' },
   { key: 'path', label: 'Path' },
+  { key: 'owner', label: 'Editorial owner' },
   { key: 'format', label: 'Content type' },
   { key: 'updated', label: 'Last updated' },
   { key: 'days', label: 'Days since update' },
+  { key: 'withdrawn', label: 'Withdrawn' },
 ];
 
 function sortedFilteredRows() {
   const q = (el('estate-table-filter').value || '').trim().toLowerCase();
-  let rows = estate.rows;
+  let rows = baseRows();
   if (q) rows = rows.filter(r => r.title.toLowerCase().includes(q) || r.path.toLowerCase().includes(q));
   const { key, dir } = estate.sort;
   const mul = dir === 'asc' ? 1 : -1;
@@ -781,6 +814,7 @@ function sortedFilteredRows() {
     let av = a[key], bv = b[key];
     if (key === 'days') { av = av == null ? -1 : av; bv = bv == null ? -1 : bv; return (av - bv) * mul; }
     if (key === 'updated') { av = av ? Date.parse(av) : 0; bv = bv ? Date.parse(bv) : 0; return (av - bv) * mul; }
+    if (key === 'withdrawn') { return ((a.withdrawn ? 1 : 0) - (b.withdrawn ? 1 : 0)) * mul; }
     return String(av).localeCompare(String(bv)) * mul;
   });
   return rows;
@@ -795,38 +829,46 @@ function renderTable() {
   }).join('') + '</tr>';
 
   const rows = sortedFilteredRows();
+  const workingTotal = baseRows().length;
   el('estate-table-count').textContent =
-    `${rows.length.toLocaleString('en-GB')} shown of ${estate.rows.length.toLocaleString('en-GB')} fetched` +
-    (rows.length !== estate.rows.length ? ' (filtered)' : '');
+    `${rows.length.toLocaleString('en-GB')} shown of ${workingTotal.toLocaleString('en-GB')}` +
+    (rows.length !== workingTotal ? ' (filtered)' : '');
 
   const MAX_RENDER = 2000; // keep the DOM manageable; CSV always has everything
   const slice = rows.slice(0, MAX_RENDER);
   el('estate-tbody').innerHTML = slice.map(r => {
-    const cls = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
+    const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
+    const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
+    const withdrawnCell = r.withdrawn
+      ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
+      : '<span class="app-muted">—</span>';
     return `<tr class="govuk-table__row${cls}">
       <td class="govuk-table__cell app-break"><a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a></td>
       <td class="govuk-table__cell app-break">${esc(r.path)}</td>
+      <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
       <td class="govuk-table__cell">${fmtDate(r.updated)}</td>
       <td class="govuk-table__cell">${r.days == null ? '—' : r.days.toLocaleString('en-GB')}${staleTag(r.days)}</td>
+      <td class="govuk-table__cell">${withdrawnCell}</td>
     </tr>`;
   }).join('');
 
   if (rows.length > MAX_RENDER) {
     el('estate-tbody').innerHTML +=
-      `<tr class="govuk-table__row"><td class="govuk-table__cell app-muted" colspan="5">Showing first ${MAX_RENDER.toLocaleString('en-GB')} rows. Filter to narrow, or use Download CSV for the full set.</td></tr>`;
+      `<tr class="govuk-table__row"><td class="govuk-table__cell app-muted" colspan="${COLUMNS.length}">Showing first ${MAX_RENDER.toLocaleString('en-GB')} rows. Filter to narrow, or use Download CSV for the full set.</td></tr>`;
   }
 }
 
 function downloadCsv() {
   const rows = sortedFilteredRows(); // export what the current sort/filter shows
-  const header = ['title', 'path', 'content_type', 'last_updated', 'days_since_update'];
+  const header = ['title', 'path', 'editorial_owner', 'content_type', 'last_updated', 'days_since_update', 'withdrawn'];
   const csvCell = (v) => {
     const s = String(v == null ? '' : v);
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const lines = [header.join(',')];
-  rows.forEach(r => lines.push([r.title, r.path, r.format, r.updated || '', r.days == null ? '' : r.days].map(csvCell).join(',')));
+  rows.forEach(r => lines.push(
+    [r.title, r.path, r.owner, r.format, r.updated || '', r.days == null ? '' : r.days, r.withdrawn ? 'yes' : 'no'].map(csvCell).join(',')));
   const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -850,6 +892,7 @@ function updateUrl() {
   if (estate.sort && estate.sort.key) { p.set('sort', estate.sort.key); p.set('dir', estate.sort.dir); }
   const q = (el('estate-table-filter').value || '').trim();
   if (q) p.set('q', q);
+  if (withdrawnShown()) p.set('withdrawn', '1');
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
@@ -863,6 +906,7 @@ function readStateFromUrl() {
     types: (p.get('types') || '').split(',').map(s => s.trim()).filter(Boolean),
     sort: p.get('sort') ? { key: p.get('sort'), dir: p.get('dir') === 'asc' ? 'asc' : 'desc' } : null,
     q: p.get('q') || '',
+    withdrawn: p.get('withdrawn') === '1',
   };
 }
 
@@ -886,6 +930,10 @@ async function restoreFromUrl() {
       await fetchResults();
       if (st.sort) estate.sort = st.sort;
       el('estate-table-filter').value = st.q;
+      const wcb = el('estate-show-withdrawn');
+      if (wcb && !wcb.disabled) wcb.checked = st.withdrawn;
+      renderCards();
+      renderYearBar();
       renderTable();
     }
   } finally {
@@ -944,6 +992,9 @@ function setupEstate() {
   // Results controls
   el('estate-get-results').addEventListener('click', fetchResults);
   el('estate-table-filter').addEventListener('input', () => { renderTable(); updateUrl(); });
+  el('estate-show-withdrawn').addEventListener('change', () => {
+    renderCards(); renderYearBar(); renderTable(); updateUrl();
+  });
   el('estate-csv').addEventListener('click', downloadCsv);
   el('estate-thead').addEventListener('click', (e) => {
     const th = e.target.closest('.app-sort');
