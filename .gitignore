@@ -1,0 +1,12 @@
+# Local Netlify dev/build folder
+.netlify
+
+# Dependencies (none currently, but just in case)
+node_modules
+
+# Environment files — never commit CONTACT_EMAIL or other secrets
+.env
+.env.*
+
+# OS cruft
+.DS_Store

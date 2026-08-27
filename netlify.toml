@@ -1,0 +1,19 @@
+# Netlify configuration for the GOV.UK content explorer (unofficial).
+#
+# Static site + one serverless function (the organisations proxy — the single
+# GOV.UK endpoint that is not CORS-enabled). Password protection is handled by
+# Netlify Pro's built-in site protection (Site configuration > Access & security),
+# not in code.
+
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+# Pretty path: /api/organisations -> the function
+[[redirects]]
+  from = "/api/organisations"
+  to = "/.netlify/functions/organisations"
+  status = 200
+
+[functions]
+  node_bundler = "esbuild"

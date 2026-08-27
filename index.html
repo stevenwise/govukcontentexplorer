@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" class="govuk-template">
+<head>
+  <meta charset="utf-8">
+  <title>GOV.UK content explorer (unofficial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/govuk-frontend@5/dist/govuk/govuk-frontend.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    /* We deliberately do NOT load GDS Transport: it is licensed for real
+       government services only, and this is not one. Arial fallback is correct. */
+    body { font-family: Arial, Helvetica, sans-serif; }
+    .app-disclaimer-footer {
+      border-top: 4px solid #1d70b8;
+      background: #f3f2f1;
+      padding: 20px 0;
+      margin-top: 40px;
+    }
+    .app-disclaimer-footer p { margin: 0; }
+    .app-hidden { display: none !important; }
+    .app-flag {
+      border-left: 5px solid #d4351c;
+      background: #fef7f7;
+      padding: 12px 15px;
+      margin: 15px 0;
+    }
+    .app-flag--info { border-left-color: #1d70b8; background: #eef6fb; }
+    .app-panel {
+      border: 1px solid #b1b4b6;
+      padding: 15px 20px;
+      margin-bottom: 20px;
+      background: #ffffff;
+    }
+    .app-panel h3 { margin-top: 0; }
+    .app-domain-list { margin: 0; padding-left: 20px; }
+    .app-muted { color: #505a5f; }
+    .app-spinner { font-weight: bold; }
+    table.app-table { table-layout: fixed; }
+    td.app-break, .app-break { word-break: break-word; }
+    .app-combo-list {
+      border: 2px solid #0b0c0c; border-top: 0; max-height: 320px; overflow-y: auto;
+      background: #fff; max-width: 100%;
+    }
+    .app-combo-option {
+      display: block; width: 100%; text-align: left; border: 0; background: #fff;
+      padding: 8px 12px; cursor: pointer; font-size: 1rem; border-bottom: 1px solid #f3f2f1;
+    }
+    .app-combo-option:hover, .app-combo-option.app-active { background: #1d70b8; color: #fff; }
+    .app-combo-option .app-muted { color: #505a5f; }
+    .app-combo-option:hover .app-muted, .app-combo-option.app-active .app-muted { color: #f3f2f1; }
+    #estate-chart { min-height: 200px; }
+    .app-combo-more {
+      position: sticky; bottom: 0; background: #f3f2f1; border-top: 1px solid #b1b4b6;
+      padding: 8px 12px; font-size: 0.875rem;
+    }
+    tr.app-row-amber > td { background: #fff7e6; }
+    tr.app-row-red > td { background: #fbeceb; }
+    th.app-sort { cursor: pointer; white-space: nowrap; }
+    th.app-sort:hover { text-decoration: underline; }
+    th.app-sort .app-arrow { color: #505a5f; font-size: 0.8em; }
+    .app-card { border: 1px solid #b1b4b6; padding: 12px 15px; margin-bottom: 15px; background: #fff; height: 100%; }
+    .app-card .app-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+    .app-typebar-track { background: #f3f2f1; height: 16px; width: 100%; }
+    .app-typebar-fill { height: 16px; min-width: 3px; }
+    #estate-cards .govuk-table__cell { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+  </style>
+</head>
+<body class="govuk-template__body">
+  <script>document.body.className += ' js-enabled' + ('noModule' in HTMLScriptElement.prototype ? ' govuk-frontend-supported' : '');</script>
+
+  <!-- Prominent "this is not a real government service" banner -->
+  <div class="govuk-width-container">
+    <div class="govuk-phase-banner">
+      <p class="govuk-phase-banner__content">
+        <strong class="govuk-tag govuk-phase-banner__content__tag">Unofficial</strong>
+        <span class="govuk-phase-banner__text">
+          Personal tool. Not an HMCTS, MoJ or GDS service. Read-only against the public GOV.UK APIs.
+        </span>
+      </p>
+    </div>
+  </div>
+
+  <div class="govuk-width-container">
+    <main class="govuk-main-wrapper" id="main-content" role="main">
+
+      <h1 class="govuk-heading-xl">GOV.UK content explorer</h1>
+
+      <!-- Simple view switcher -->
+      <nav class="govuk-!-margin-bottom-6" aria-label="Views">
+        <button class="govuk-button" data-module="govuk-button" id="nav-page" type="button">Page view</button>
+        <button class="govuk-button govuk-button--secondary" data-module="govuk-button" id="nav-estate" type="button">Estate view</button>
+      </nav>
+
+      <!-- ============================= PAGE VIEW ============================= -->
+      <section id="view-page">
+        <h2 class="govuk-heading-l">Page view</h2>
+        <p class="govuk-body">Paste any GOV.UK URL or path to inspect ownership, structure, staleness, Welsh availability and outbound links.</p>
+
+        <div class="govuk-form-group">
+          <label class="govuk-label" for="page-url">GOV.UK URL or path</label>
+          <div id="page-url-hint" class="govuk-hint">
+            For example https://www.gov.uk/make-court-claim-for-money or a bare path. Query strings and anchors are fine.
+          </div>
+          <input class="govuk-input" id="page-url" name="page-url" type="text" aria-describedby="page-url-hint"
+                 value="https://www.gov.uk/government/publications/third-party-debt-orders-and-charging-orders-ex325">
+        </div>
+        <button class="govuk-button" data-module="govuk-button" id="page-fetch" type="button">Fetch page</button>
+
+        <div id="page-status" class="govuk-body app-spinner" aria-live="polite"></div>
+        <div id="page-results" class="app-hidden"></div>
+      </section>
+
+      <!-- ============================= ESTATE VIEW ============================= -->
+      <section id="view-estate" class="app-hidden">
+        <h2 class="govuk-heading-l">Estate view</h2>
+        <p class="govuk-body">Pick an organisation to see what it publishes, broken down by content type, before pulling any rows.</p>
+
+        <!-- Organisation picker (searchable) -->
+        <div class="govuk-form-group">
+          <label class="govuk-label" for="estate-org-search">Organisation</label>
+          <div id="estate-org-hint" class="govuk-hint">Type to search by title or slug.</div>
+          <input class="govuk-input" id="estate-org-search" type="text" autocomplete="off"
+                 aria-describedby="estate-org-hint" aria-expanded="false" aria-controls="estate-org-list" role="combobox">
+          <div id="estate-org-list" role="listbox" class="app-combo-list app-hidden"></div>
+          <p id="estate-org-selected" class="govuk-body govuk-!-margin-top-2 app-hidden">
+            Selected: <strong id="estate-org-selected-name"></strong>
+          </p>
+        </div>
+        <button class="govuk-button" data-module="govuk-button" id="estate-fetch" type="button" disabled>Fetch breakdown</button>
+
+        <div id="estate-status" class="govuk-body app-spinner" aria-live="polite"></div>
+
+        <!-- Aggregate results -->
+        <div id="estate-aggregate" class="app-hidden">
+          <div class="govuk-grid-row">
+            <div class="govuk-grid-column-one-half">
+              <div class="app-panel">
+                <h3 class="govuk-heading-s govuk-!-margin-bottom-1">Total items in the index</h3>
+                <p class="govuk-heading-xl govuk-!-margin-bottom-0" id="estate-total">—</p>
+                <p class="govuk-body-s app-muted" id="estate-total-sub"></p>
+              </div>
+            </div>
+            <div class="govuk-grid-column-one-half">
+              <div class="app-panel" style="background:#eef6fb;">
+                <h3 class="govuk-heading-s govuk-!-margin-bottom-1">Projected rows for current selection</h3>
+                <p class="govuk-heading-xl govuk-!-margin-bottom-0" id="estate-projected">0</p>
+                <p class="govuk-body-s app-muted" id="estate-projected-sub">Tick content types below.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="app-panel">
+            <h3 class="govuk-heading-m">Content types</h3>
+            <div class="govuk-button-group">
+              <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="estate-select-guidance">Select guidance types</button>
+              <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="estate-clear-types">Clear all</button>
+            </div>
+            <div id="estate-checkboxes" class="govuk-checkboxes govuk-checkboxes--small"></div>
+            <div class="govuk-button-group govuk-!-margin-top-4">
+              <button class="govuk-button" data-module="govuk-button" type="button" id="estate-get-results" disabled>Get results</button>
+            </div>
+            <div id="estate-results-status" class="govuk-body app-spinner" aria-live="polite"></div>
+          </div>
+
+          <details class="govuk-details" id="estate-breakdown-details">
+            <summary class="govuk-details__summary">
+              <span class="govuk-details__summary-text">Show bar chart of items per content type</span>
+            </summary>
+            <div class="govuk-details__text">
+              <p class="govuk-body-s app-muted" id="estate-chart-note"></p>
+              <div id="estate-chart-wrap" style="overflow-x:auto; position:relative; height:400px;"><canvas id="estate-chart"></canvas></div>
+            </div>
+          </details>
+
+          <!-- ===================== RESULTS ===================== -->
+          <div id="estate-results" class="app-hidden">
+            <h3 class="govuk-heading-l">Results</h3>
+            <div class="govuk-grid-row" id="estate-cards"></div>
+
+            <div class="app-panel">
+              <h4 class="govuk-heading-s">Items by year of last update</h4>
+              <div style="position:relative; height:340px;"><canvas id="estate-yearbar"></canvas></div>
+            </div>
+
+            <div class="app-panel">
+              <div class="govuk-grid-row">
+                <div class="govuk-grid-column-two-thirds">
+                  <div class="govuk-form-group govuk-!-margin-bottom-2">
+                    <label class="govuk-label" for="estate-table-filter">Filter by title or path</label>
+                    <input class="govuk-input" id="estate-table-filter" type="text" autocomplete="off">
+                  </div>
+                </div>
+                <div class="govuk-grid-column-one-third" style="text-align:right;">
+                  <button class="govuk-button govuk-button--secondary govuk-!-margin-top-6" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
+                </div>
+              </div>
+              <p class="govuk-body-s app-muted" id="estate-table-count"></p>
+              <div style="overflow-x:auto;">
+                <table class="govuk-table" id="estate-table">
+                  <thead class="govuk-table__head" id="estate-thead"></thead>
+                  <tbody class="govuk-table__body" id="estate-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============================= REQUIRED DISCLAIMER FOOTER ============================= -->
+  <footer class="app-disclaimer-footer" role="contentinfo">
+    <div class="govuk-width-container">
+      <p class="govuk-body">
+        <strong>Unofficial personal tool. Not an HMCTS, MoJ or GDS service. Built against the public GOV.UK APIs.</strong>
+      </p>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
