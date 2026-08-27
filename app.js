@@ -925,6 +925,7 @@ function renderTable() {
       <td class="govuk-table__cell app-break">
         <a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a>
         <span class="app-path" title="${esc(r.path)}">${esc(midTruncate(r.path))}</span>
+        <a class="govuk-link app-inspect" href="#" data-inspect="${esc(r.path)}">Inspect in Page view</a>
       </td>
       <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
@@ -1137,6 +1138,17 @@ function setupEstate() {
     }
     estate.page = 1;
     renderChips(); renderTable(); updateUrl();
+  });
+
+  // "Inspect in Page view" — drill from a result row into the page analysis
+  el('estate-tbody').addEventListener('click', (e) => {
+    const link = e.target.closest('[data-inspect]');
+    if (!link) return;
+    e.preventDefault();
+    showView('page');
+    el('page-url').value = GOVUK + link.dataset.inspect;
+    fetchPage();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
   // Pagination
