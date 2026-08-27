@@ -515,6 +515,7 @@ async function fetchAggregate() {
     status.textContent = '';
 
     const total = data.total || 0;
+    estate.orgTotal = total; // the org's whole-index count, denominator for the "X of index" card
     el('estate-total').textContent = total.toLocaleString('en-GB');
     el('estate-total-sub').textContent = 'in the search index for ' + slug;
 
@@ -726,13 +727,19 @@ function renderCards() {
   const over5 = rows.filter(r => r.days != null && r.days > AMBER_DAYS).length;
   const over10 = rows.filter(r => r.days != null && r.days > RED_DAYS).length;
   const owners = new Set(rows.map(r => r.owner).filter(Boolean));
+  const total = rows.length;
+  const orgTotal = estate.orgTotal || 0;
+  const pct = (n, d) => {
+    const v = d ? (n / d) * 100 : 0;
+    return (v > 0 && v < 1 ? v.toFixed(1) : Math.round(v)) + '%';
+  };
 
   const byType = {};
   rows.forEach(r => { byType[r.format] = (byType[r.format] || 0) + 1; });
   const typeList = Object.entries(byType).sort((a, b) => b[1] - a[1]);
 
   const card = (label, num, sub) => `
-    <div class="govuk-grid-column-one-quarter">
+    <div class="govuk-grid-column-one-third">
       <div class="app-card">
         <div class="app-num">${num}</div>
         <div class="govuk-body-s govuk-!-margin-bottom-0">${label}</div>
@@ -756,16 +763,25 @@ function renderCards() {
   }).join('');
 
   el('estate-cards').innerHTML =
-    card('Total items', rows.length.toLocaleString('en-GB'), estate.selected.slug) +
+    card('Total items in the selection', total.toLocaleString('en-GB'), estate.selected.slug) +
+    card('of everything this org publishes', orgTotal ? pct(total, orgTotal) : '—',
+         orgTotal ? `${total.toLocaleString('en-GB')} of ${orgTotal.toLocaleString('en-GB')} items in the index` : '') +
     card('Distinct editorial owners', owners.size.toLocaleString('en-GB'),
-         owners.size > 1 ? 'the estate includes pages owned by others' : 'all one owner') +
-    card('Updated in last 12 months', within12m.toLocaleString('en-GB'), 'by last-updated date') +
-    card('Not updated in over 5 years', over5.toLocaleString('en-GB'), '&gt; 1,825 days') +
-    card('Not updated in over 10 years', over10.toLocaleString('en-GB'), '&gt; 3,650 days') +
+         owners.size > 1 ? 'includes pages owned by others' : 'all one owner') +
+    card('Updated in last 12 months', within12m.toLocaleString('en-GB'), `${pct(within12m, total)} of the selection`) +
+    card('Not updated in over 5 years', over5.toLocaleString('en-GB'), `${pct(over5, total)} of the selection`) +
+    card('Not updated in over 10 years', over10.toLocaleString('en-GB'), `${pct(over10, total)} of the selection`) +
     `<div class="govuk-grid-column-full"><div class="app-card">
        <h4 class="govuk-heading-s govuk-!-margin-bottom-2">Count per content type</h4>
        <table class="govuk-table govuk-!-margin-bottom-0"><tbody class="govuk-table__body">${typeRows}</tbody></table>
      </div></div>`;
+
+  // Oldest item in the selection (largest days-since-update), linked.
+  const withDates = rows.filter(r => r.days != null);
+  const oldest = withDates.length ? withDates.reduce((a, b) => (b.days > a.days ? b : a)) : null;
+  el('estate-oldest').innerHTML = oldest
+    ? `<strong>Oldest item:</strong> <a class="govuk-link" href="${GOVUK}${esc(oldest.path)}" target="_blank" rel="noopener">${esc(oldest.title)}</a> — last updated ${fmtDate(oldest.updated)} (${oldest.days.toLocaleString('en-GB')} days ago).`
+    : '';
 }
 
 function renderYearBar() {
