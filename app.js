@@ -674,7 +674,38 @@ const CHART_COLOURS = ['#1d70b8', '#d4351c', '#00703c', '#f47738', '#4c2c92', '#
                        '#28a197', '#b58840', '#5694ca', '#85994b', '#6f777b', '#801650'];
 
 // Display-only abbreviations for long owner names (full name kept for CSV/hover).
-const OWNER_ABBREV = { 'Government Digital Service': 'GDS' };
+// Keyed by the exact GOV.UK org title.
+const OWNER_ABBREV = {
+  'Government Digital Service': 'GDS',
+  'HM Revenue & Customs': 'HMRC',
+  'HM Courts & Tribunals Service': 'HMCTS',
+  'Department for Work and Pensions': 'DWP',
+  'Ministry of Justice': 'MoJ',
+  'Ministry of Housing, Communities and Local Government': 'MHCLG',
+  'Department for Levelling Up, Housing and Communities': 'DLUHC',
+  'Department for Education': 'DfE',
+  'Department for Business and Trade': 'DBT',
+  'Department for Environment, Food & Rural Affairs': 'Defra',
+  'Foreign, Commonwealth & Development Office': 'FCDO',
+  'Department of Health and Social Care': 'DHSC',
+  'HM Treasury': 'HMT',
+  'Department for Transport': 'DfT',
+  'Department for Culture, Media and Sport': 'DCMS',
+  'Department for Energy Security and Net Zero': 'DESNZ',
+  'Department for Science, Innovation and Technology': 'DSIT',
+  'Ministry of Defence': 'MOD',
+  'Driver and Vehicle Licensing Agency': 'DVLA',
+  'Driver and Vehicle Standards Agency': 'DVSA',
+  'HM Prison and Probation Service': 'HMPPS',
+  'UK Health Security Agency': 'UKHSA',
+  'Valuation Office Agency': 'VOA',
+  'Criminal Injuries Compensation Authority': 'CICA',
+  'Government Equalities Office': 'GEO',
+  "Attorney General's Office": 'AGO',
+  'Environment Agency': 'EA',
+  'Maritime and Coastguard Agency': 'MCA',
+  'Rural Payments Agency': 'RPA',
+};
 const ownerDisplay = (name) => OWNER_ABBREV[name] || name;
 
 async function fetchResults() {
@@ -704,7 +735,7 @@ async function fetchResults() {
   const ownerTitle = (ppo) => {
     if (!Array.isArray(ppo) || !ppo.length) return '';
     const slug = ppo[0];
-    return orgTitleBySlug.get(slug) || slug; // fall back to the slug if not in the list
+    return (orgTitleBySlug.get(slug) || slug).trim(); // fall back to the slug if not in the list
   };
 
   const rows = [];
