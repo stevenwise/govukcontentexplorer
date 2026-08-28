@@ -48,12 +48,15 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-// Compact but unambiguous date, e.g. 1 Apr 2013 — used in the dense results table.
+// Compact numeric date, e.g. 01.03.26 — used in the dense results table.
 function fmtDateNumeric(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (isNaN(d)) return esc(iso);
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
 }
 
 function staleTag(days) {
@@ -435,7 +438,6 @@ const estate = {
   restoring: false,    // true while rebuilding a view from the URL (suppresses URL churn + confirms)
   page: 1,             // table page (50 rows/page)
   typeChips: new Set(),// active content-type filter chips
-  ownerChips: new Set(),// active editorial-owner filter chips (deep-linked)
   staleChip: null,     // active staleness band: under1 | 1to5 | over5 | over10 | null
   yearFilter: null,    // year selected from the chart, or null
 };
@@ -596,7 +598,6 @@ function updateProjection() {
     ? `${checked.size} content type${checked.size === 1 ? '' : 's'} selected`
     : 'Tick content types below.';
   el('estate-get-results').disabled = checked.size === 0;
-  el('estate-projected-card').classList.remove('app-hidden'); // relevant again while choosing types
   updateUrl();
 }
 
@@ -733,7 +734,6 @@ async function fetchResults() {
   estate.sort = { key: 'updated', dir: 'asc' }; // oldest-updated first = stalest first
   estate.page = 1;
   estate.typeChips = new Set();
-  estate.ownerChips = new Set();
   estate.staleChip = null;
   estate.yearFilter = null;
   updateWithdrawnToggle();
@@ -742,7 +742,6 @@ async function fetchResults() {
   renderChips();
   renderTable();
   el('estate-results').classList.remove('app-hidden');
-  el('estate-projected-card').classList.add('app-hidden'); // redundant once actual results are shown
   el('estate-breakdown-details').open = false; // fold the tall breakdown away so results sit near the button
   el('estate-get-results').disabled = false;
   updateUrl();
@@ -814,9 +813,9 @@ function renderCards() {
   }).join('');
 
   el('estate-cards').innerHTML =
-    card(orgTotal ? `${pct(total, orgTotal)} of everything this org publishes` : 'items in the selection',
-         orgTotal ? `${total.toLocaleString('en-GB')} of ${orgTotal.toLocaleString('en-GB')}` : total.toLocaleString('en-GB'),
-         '') +
+    card('Total items in the selection', total.toLocaleString('en-GB'), estate.selected.slug) +
+    card('of everything this org publishes', orgTotal ? pct(total, orgTotal) : '—',
+         orgTotal ? `${total.toLocaleString('en-GB')} of ${orgTotal.toLocaleString('en-GB')} items in the index` : '') +
     card('Distinct editorial owners', owners.size.toLocaleString('en-GB'),
          owners.size > 1 ? 'includes pages owned by others' : 'all one owner') +
     card('Updated in last 12 months', within12m.toLocaleString('en-GB'), `${pct(within12m, total)} of the selection`) +
@@ -914,7 +913,6 @@ function sortedFilteredRows() {
     }
   }
   if (estate.typeChips.size) rows = rows.filter(r => estate.typeChips.has(r.format));
-  if (estate.ownerChips.size) rows = rows.filter(r => estate.ownerChips.has(r.owner));
   if (estate.staleChip) rows = rows.filter(r => bandMatch(r.days, estate.staleChip));
   if (estate.yearFilter != null) rows = rows.filter(r => r.updated && new Date(r.updated).getFullYear() === estate.yearFilter);
   const { key, dir } = estate.sort;
@@ -962,8 +960,9 @@ function renderTable() {
       : '<span class="app-muted">—</span>';
     return `<tr class="govuk-table__row${cls}">
       <td class="govuk-table__cell app-break">
-        <a class="govuk-link" href="#" data-inspect="${esc(r.path)}">${esc(r.title)}</a>
-        <a class="app-path" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener" title="Open the live page: ${esc(r.path)}">${esc(midTruncate(r.path))}</a>
+        <a class="govuk-link" href="${GOVUK}${esc(r.path)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+        <span class="app-path" title="${esc(r.path)}">${esc(midTruncate(r.path))}</span>
+        <a class="govuk-link app-inspect" href="#" data-inspect="${esc(r.path)}">Inspect in Page view</a>
       </td>
       <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
@@ -995,23 +994,15 @@ function renderChips() {
     `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-chip="${kind}" data-val="${esc(val)}">${esc(label)}</button>`;
 
   const typeHtml = types.map(t => chip('type', t, t, estate.typeChips.has(t))).join(' ');
-
-  // Editorial owners in the fetched set, by count descending, with the count.
-  const ownerCounts = {};
-  baseRows().forEach(r => { if (r.owner) ownerCounts[r.owner] = (ownerCounts[r.owner] || 0) + 1; });
-  const owners = Object.entries(ownerCounts).sort((a, b) => b[1] - a[1]);
-  const ownerHtml = owners.map(([o, n]) => chip('owner', o, `${o} (${n.toLocaleString('en-GB')})`, estate.ownerChips.has(o))).join(' ');
-
   const bands = [['under1', 'Under 1 year'], ['1to5', '1 to 5 years'], ['over5', 'Over 5 years'], ['over10', 'Over 10 years']];
   const bandHtml = bands.map(([k, l]) => chip('stale', k, l, estate.staleChip === k)).join(' ');
   const yearHtml = estate.yearFilter != null
     ? `<button type="button" class="app-chip app-chip--active" data-chip="year" data-val="${estate.yearFilter}">Year: ${estate.yearFilter} ✕</button>`
     : '';
-  const anyActive = estate.typeChips.size || estate.ownerChips.size || estate.staleChip || estate.yearFilter != null || (el('estate-table-filter').value || '').trim();
+  const anyActive = estate.typeChips.size || estate.staleChip || estate.yearFilter != null || (el('estate-table-filter').value || '').trim();
 
   el('estate-chips').innerHTML =
     `<div class="app-chip-row"><span class="app-chip-label">Content type</span>${typeHtml || '<span class="app-muted">—</span>'}</div>` +
-    `<div class="app-chip-row"><span class="app-chip-label">Editorial owner</span>${ownerHtml || '<span class="app-muted">—</span>'}</div>` +
     `<div class="app-chip-row"><span class="app-chip-label">Staleness</span>${bandHtml} ${yearHtml}` +
     (anyActive ? ` <button type="button" class="app-chip app-chip--clear" data-chip="clear" data-val="">Clear filters</button>` : '') +
     `</div>`;
@@ -1050,8 +1041,6 @@ function updateUrl() {
   if (estate.sort && estate.sort.key) { p.set('sort', estate.sort.key); p.set('dir', estate.sort.dir); }
   const q = (el('estate-table-filter').value || '').trim();
   if (q) p.set('q', q);
-  // Owner titles can contain commas, so join with a pipe (never present in them).
-  if (estate.ownerChips.size) p.set('owners', [...estate.ownerChips].join('|'));
   if (withdrawnShown()) p.set('withdrawn', '1');
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
@@ -1066,7 +1055,6 @@ function readStateFromUrl() {
     types: (p.get('types') || '').split(',').map(s => s.trim()).filter(Boolean),
     sort: p.get('sort') ? { key: p.get('sort'), dir: p.get('dir') === 'asc' ? 'asc' : 'desc' } : null,
     q: p.get('q') || '',
-    owners: (p.get('owners') || '').split('|').filter(Boolean),
     withdrawn: p.get('withdrawn') === '1',
   };
 }
@@ -1091,7 +1079,6 @@ async function restoreFromUrl() {
       await fetchResults();
       if (st.sort) estate.sort = st.sort;
       el('estate-table-filter').value = st.q;
-      estate.ownerChips = new Set(st.owners);
       const wcb = el('estate-show-withdrawn');
       if (wcb && !wcb.disabled) wcb.checked = st.withdrawn;
       renderCards();
@@ -1177,14 +1164,12 @@ function setupEstate() {
     const { chip, val } = btn.dataset;
     if (chip === 'type') {
       if (estate.typeChips.has(val)) estate.typeChips.delete(val); else estate.typeChips.add(val);
-    } else if (chip === 'owner') {
-      if (estate.ownerChips.has(val)) estate.ownerChips.delete(val); else estate.ownerChips.add(val);
     } else if (chip === 'stale') {
       estate.staleChip = estate.staleChip === val ? null : val;
     } else if (chip === 'year') {
       estate.yearFilter = null; renderYearBar();
     } else if (chip === 'clear') {
-      estate.typeChips = new Set(); estate.ownerChips = new Set(); estate.staleChip = null;
+      estate.typeChips = new Set(); estate.staleChip = null;
       estate.yearFilter = null; el('estate-table-filter').value = ''; renderYearBar();
     }
     estate.page = 1;
