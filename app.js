@@ -34,6 +34,14 @@ function wordCount(text) {
   return t ? t.split(/\s+/).length : 0;
 }
 
+// Humanise a content-type slug for display, e.g. employment_tribunal_decision
+// -> "Employment tribunal decision". The raw slug stays the value/CSV field.
+function formatLabel(slug) {
+  if (!slug) return '';
+  const s = String(slug).replace(/_/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function daysSince(iso) {
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -569,7 +577,7 @@ function renderTypeCheckboxes() {
     <div class="govuk-checkboxes__item">
       <input class="govuk-checkboxes__input" id="cb-${esc(f.slug)}" type="checkbox" value="${esc(f.slug)}">
       <label class="govuk-label govuk-checkboxes__label" for="cb-${esc(f.slug)}">
-        ${esc(f.slug)} <span class="app-muted">(${f.documents.toLocaleString('en-GB')})</span>
+        ${esc(formatLabel(f.slug))} <span class="app-muted">(${f.documents.toLocaleString('en-GB')})</span>
       </label>`.concat('</div>');
 
   const top = fmts.slice(0, 10);
@@ -645,7 +653,7 @@ function renderFormatChart() {
   estate.chart = new Chart(canvas.getContext('2d'), {
     type: 'bar',
     data: {
-      labels: f.map(x => x.slug),
+      labels: f.map(x => formatLabel(x.slug)),
       datasets: [{ label: 'Items', data: plotted, backgroundColor: '#1d70b8' }],
     },
     options: {
@@ -848,7 +856,7 @@ function renderCards() {
     const colour = CHART_COLOURS[i % CHART_COLOURS.length];
     const share = rows.length ? Math.round((n / rows.length) * 100) : 0;
     return `<tr class="govuk-table__row">
-      <td class="govuk-table__cell app-break" style="width:32%">${esc(t)}</td>
+      <td class="govuk-table__cell app-break" style="width:32%">${esc(formatLabel(t))}</td>
       <td class="govuk-table__cell" style="width:48%">
         <div class="app-typebar-track"><div class="app-typebar-fill" style="width:${pct}%;background:${colour}"></div></div>
       </td>
@@ -1011,7 +1019,7 @@ function renderTable() {
         <a class="govuk-link app-inspect" href="#" data-inspect="${esc(r.path)}">Inspect in Page view</a>
       </td>
       <td class="govuk-table__cell app-break">${r.owner ? `<span title="${esc(r.owner)}">${esc(ownerDisplay(r.owner))}</span>` : '<span class="app-muted">—</span>'}</td>
-      <td class="govuk-table__cell">${esc(r.format)}</td>
+      <td class="govuk-table__cell">${esc(formatLabel(r.format))}</td>
       <td class="govuk-table__cell">${updatedCell}</td>
       ${showWd ? `<td class="govuk-table__cell">${withdrawnCell}</td>` : ''}
     </tr>`;
@@ -1039,7 +1047,7 @@ function renderChips() {
   const chip = (kind, val, label, active, title) =>
     `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-chip="${kind}" data-val="${esc(val)}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
 
-  const typeHtml = types.map(t => chip('type', t, t, estate.typeChips.has(t))).join(' ');
+  const typeHtml = types.map(t => chip('type', t, formatLabel(t), estate.typeChips.has(t), t)).join(' ');
 
   // Editorial owners, count descending, abbreviated labels (full name on hover),
   // capped at the top-N with a "Show all" disclosure.
