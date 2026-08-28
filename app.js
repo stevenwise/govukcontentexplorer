@@ -123,24 +123,29 @@ function showView(which) {
 
 /* ---------- Page view ---------- */
 
-async function fetchPage() {
-  const path = normalisePath(el('page-url').value);
+// Router: a URL or path loads directly; free text (a title, which contains
+// spaces) searches GOV.UK and offers matching pages to inspect.
+function fetchPage() {
+  const raw = (el('page-url').value || '').trim();
+  if (!raw) { el('page-status').textContent = 'Enter a GOV.UK URL, path, or page title.'; return; }
+  if (/\s/.test(raw)) return searchPages(raw); // URLs and paths never contain spaces
+  return loadPage(normalisePath(raw));
+}
+
+async function loadPage(path) {
   const status = el('page-status');
   const results = el('page-results');
   results.classList.add('app-hidden');
   results.innerHTML = '';
 
-  if (!path) {
-    status.textContent = 'Enter a GOV.UK URL or path.';
-    return;
-  }
+  if (!path) { status.textContent = 'Enter a GOV.UK URL, path, or page title.'; return; }
 
   status.textContent = 'Fetching /' + path + ' …';
   try {
     const r = await fetch(GOVUK + '/api/content/' + path);
     if (!r.ok) {
       status.textContent = r.status === 404
-        ? 'Not found. GOV.UK has no content item at /' + path + ' (check the path, or it may be a search-only page).'
+        ? 'Not found at /' + path + '. Check the path, or type the page title to search instead.'
         : 'GOV.UK returned ' + r.status + ' for /' + path + '.';
       return;
     }
@@ -150,6 +155,38 @@ async function fetchPage() {
     results.classList.remove('app-hidden');
   } catch (e) {
     status.textContent = 'Could not reach the GOV.UK content API: ' + e.message;
+  }
+}
+
+// Search GOV.UK by title/text and list matching pages to inspect.
+async function searchPages(query) {
+  const status = el('page-status');
+  const results = el('page-results');
+  results.classList.add('app-hidden');
+  results.innerHTML = '';
+  status.textContent = 'Searching for “' + query + '” …';
+  try {
+    const r = await fetch(GOVUK + '/api/search.json?count=10&q=' + encodeURIComponent(query) +
+      '&fields=title&fields=link&fields=format');
+    const data = await r.json();
+    const items = data.results || [];
+    if (!items.length) { status.textContent = 'No pages found for “' + query + '”.'; return; }
+    status.textContent = '';
+    let h = `<h3 class="govuk-heading-m govuk-!-margin-top-6">Pages matching “${esc(query)}”</h3>
+      <p class="govuk-body-s app-muted">Select a page to inspect it.</p>
+      <ul class="govuk-list">`;
+    items.forEach(it => {
+      h += `<li class="govuk-!-margin-bottom-3">
+        <a class="govuk-link" href="#" data-load-path="${esc(it.link)}">${esc(it.title)}</a>
+        ${it.format ? '<span class="app-muted"> · ' + esc(formatLabel(it.format)) + '</span>' : ''}
+        <br><span class="govuk-body-s app-muted">${esc(it.link)}</span>
+      </li>`;
+    });
+    h += `</ul>`;
+    results.innerHTML = h;
+    results.classList.remove('app-hidden');
+  } catch (e) {
+    status.textContent = 'Could not search GOV.UK: ' + e.message;
   }
 }
 
@@ -1297,5 +1334,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   el('page-fetch').addEventListener('click', fetchPage);
   el('page-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchPage(); });
+  // Clicking a search result loads that page's analysis.
+  el('page-results').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-load-path]');
+    if (!a) return;
+    e.preventDefault();
+    el('page-url').value = GOVUK + a.dataset.loadPath;
+    loadPage(normalisePath(a.dataset.loadPath));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
   setupEstate();
 });
