@@ -507,9 +507,6 @@ function selectOrg(o) {
   el('estate-org-search').value = o.title;
   el('estate-org-list').classList.add('app-hidden');
   el('estate-org-search').setAttribute('aria-expanded', 'false');
-  const sel = el('estate-org-selected');
-  el('estate-org-selected-name').textContent = o.title === o.slug ? o.slug : `${o.title} (${o.slug})`;
-  sel.classList.remove('app-hidden');
   el('estate-fetch').disabled = false;
   // Clear the previous org's breakdown and results so nothing stale lingers
   // until the new org's breakdown is fetched.
