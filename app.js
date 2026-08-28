@@ -246,7 +246,7 @@ function renderOwnership(d, links) {
     <div class="govuk-summary-list__row"><dt class="govuk-summary-list__key">Policy owner</dt>
       <dd class="govuk-summary-list__value">${orgs.length ? esc(orgs.join(', ')) : '<span class="app-muted">none set</span>'}</dd></div>
     <div class="govuk-summary-list__row"><dt class="govuk-summary-list__key">Publishing app</dt>
-      <dd class="govuk-summary-list__value">${esc(app)} <span class="app-muted">— ${esc(gloss)}</span></dd></div>
+      <dd class="govuk-summary-list__value">${esc(app)} <span class="app-muted">(${esc(gloss)})</span></dd></div>
   </dl></div>`;
   return h;
 }
@@ -269,7 +269,7 @@ function renderDates(d, details) {
   if (ch.length) {
     h += `<h4 class="govuk-heading-s">Change history</h4><ol class="govuk-list govuk-list--number">`;
     ch.forEach(c => {
-      h += `<li>${fmtDate(c.public_timestamp)} — ${esc(stripTags(c.note || ''))}</li>`;
+      h += `<li>${fmtDate(c.public_timestamp)}: ${esc(stripTags(c.note || ''))}</li>`;
     });
     h += `</ol>`;
   }
@@ -299,7 +299,7 @@ function renderStructure(d, links, details, parts) {
     children.forEach(c => {
       const url = c.base_path ? GOVUK + c.base_path : (c.web_url || '#');
       h += `<li class="app-break"><a class="govuk-link" href="${esc(url)}" target="_blank" rel="noopener">${esc(c.title || url)}</a>
-        <span class="app-muted"> — updated ${fmtDate(c.public_updated_at)}</span></li>`;
+        <span class="app-muted"> (updated ${fmtDate(c.public_updated_at)})</span></li>`;
     });
     h += `</ul>`;
   } else {
@@ -374,8 +374,8 @@ function renderAccessLanguage(details, links, fullBodyHtml) {
       <dd class="govuk-summary-list__value">${words.toLocaleString('en-GB')}</dd></div>
     <div class="govuk-summary-list__row"><dt class="govuk-summary-list__key">PDF-only risk</dt>
       <dd class="govuk-summary-list__value">${pdfOnly
-        ? '<strong class="govuk-tag govuk-tag--red">Likely</strong> — has file attachments and under 200 words of body content'
-        : '<span class="app-muted">No — enough body content, or no file attachments</span>'}</dd></div>
+        ? '<strong class="govuk-tag govuk-tag--red">Likely</strong>: has file attachments and under 200 words of body content'
+        : '<span class="app-muted">No: enough body content, or no file attachments</span>'}</dd></div>
     <div class="govuk-summary-list__row"><dt class="govuk-summary-list__key">Welsh version</dt>
       <dd class="govuk-summary-list__value">${welshPresent
         ? 'Present, found via ' + routes.join('; ')
@@ -383,8 +383,8 @@ function renderAccessLanguage(details, links, fullBodyHtml) {
   if (welshPresent) {
     h += `<div class="govuk-summary-list__row"><dt class="govuk-summary-list__key">Welsh accessible</dt>
       <dd class="govuk-summary-list__value">${welshAccessible
-        ? '<strong class="govuk-tag govuk-tag--green">Yes</strong> — at least one accessible route'
-        : '<strong class="govuk-tag govuk-tag--red">No</strong> — only an inaccessible file (e.g. a PDF flagged not accessible)'}</dd></div>`;
+        ? '<strong class="govuk-tag govuk-tag--green">Yes</strong>: at least one accessible route'
+        : '<strong class="govuk-tag govuk-tag--red">No</strong>: only an inaccessible file (e.g. a PDF flagged not accessible)'}</dd></div>`;
   }
   h += `</dl>`;
 
@@ -544,7 +544,7 @@ function renderOrgOptions(query) {
     }).join('');
     if (totalMatches > estate.filtered.length) {
       const more = totalMatches - estate.filtered.length;
-      html += `<div class="app-combo-more app-muted">Showing first ${estate.filtered.length} of ${totalMatches.toLocaleString('en-GB')} — keep typing to narrow (${more.toLocaleString('en-GB')} more).</div>`;
+      html += `<div class="app-combo-more app-muted">Showing first ${estate.filtered.length} of ${totalMatches.toLocaleString('en-GB')}. Keep typing to narrow (${more.toLocaleString('en-GB')} more).</div>`;
     }
     list.innerHTML = html;
   }
@@ -678,7 +678,7 @@ function renderFormatChart() {
   const median = docs[Math.floor(docs.length / 2)] || 1;
   const useLog = median > 0 && (docs[docs.length - 1] / median) > 100;
   el('estate-chart-note').textContent = useLog
-    ? 'Log scale — the top content type is more than 100× the median, so a linear axis would hide everything else. Bar tooltips show real counts.'
+    ? 'Log scale: the top content type is more than 100× the median, so a linear axis would hide everything else. Bar tooltips show real counts.'
     : 'Linear scale.';
 
   // Chart.js cannot render horizontal bars on a native logarithmic axis (the bar
@@ -1227,7 +1227,7 @@ function setupEstate() {
   loadOrganisations().then(() => {
     if (estate.orgsSource === 'aggregate-fallback') {
       el('estate-org-hint').textContent =
-        'Type to search. (Org titles unavailable — showing slugs only. The organisations Function is not reachable; deploy to Netlify or run `netlify dev` for titles.)';
+        'Type to search. (Org titles unavailable, showing slugs only. The organisations Function is not reachable; deploy to Netlify or run `netlify dev` for titles.)';
     } else if (estate.orgsSource === 'failed') {
       el('estate-org-hint').textContent = 'Could not load the organisation list.';
     } else {
