@@ -995,6 +995,7 @@ function renderTable() {
   el('estate-table-count').textContent =
     `${rows.length.toLocaleString('en-GB')} shown of ${workingTotal.toLocaleString('en-GB')}` +
     (rows.length !== workingTotal ? ' (filtered)' : '');
+  el('estate-clear-filters').classList.toggle('app-hidden', !anyFilterActive());
 
   // Pagination
   const pages = Math.max(1, Math.ceil(rows.length / PAGE_ROWS));
@@ -1040,6 +1041,21 @@ function renderPagination(page, pages, total, start, shown) {
     </div>`;
 }
 
+function anyFilterActive() {
+  return !!(estate.typeChips.size || estate.ownerChips.size || estate.staleChip ||
+            estate.yearFilter != null || (el('estate-table-filter').value || '').trim());
+}
+
+function clearFilters() {
+  estate.typeChips = new Set();
+  estate.ownerChips = new Set();
+  estate.staleChip = null;
+  estate.yearFilter = null;
+  el('estate-table-filter').value = '';
+  estate.page = 1;
+  renderYearBar(); renderChips(); renderTable(); updateUrl();
+}
+
 // Content-type + staleness-band filter chips, plus a year chip when the chart
 // is filtered. Applied client-side; no re-fetch.
 function renderChips() {
@@ -1069,14 +1085,10 @@ function renderChips() {
   const yearHtml = estate.yearFilter != null
     ? `<button type="button" class="app-chip app-chip--active" data-chip="year" data-val="${estate.yearFilter}">Year: ${estate.yearFilter} ✕</button>`
     : '';
-  const anyActive = estate.typeChips.size || estate.ownerChips.size || estate.staleChip || estate.yearFilter != null || (el('estate-table-filter').value || '').trim();
-
   el('estate-chips').innerHTML =
     `<div class="app-chip-row"><span class="app-chip-label">Content type</span>${typeHtml || '<span class="app-muted">—</span>'}</div>` +
     `<div class="app-chip-row"><span class="app-chip-label">Editorial owner</span>${ownerHtml || '<span class="app-muted">—</span>'}</div>` +
-    `<div class="app-chip-row"><span class="app-chip-label">Staleness</span>${bandHtml} ${yearHtml}` +
-    (anyActive ? ` <button type="button" class="app-chip app-chip--clear" data-chip="clear" data-val="">Clear filters</button>` : '') +
-    `</div>`;
+    `<div class="app-chip-row"><span class="app-chip-label">Staleness</span>${bandHtml} ${yearHtml}</div>`;
 }
 
 function downloadCsv() {
@@ -1246,13 +1258,12 @@ function setupEstate() {
       estate.staleChip = estate.staleChip === val ? null : val;
     } else if (chip === 'year') {
       estate.yearFilter = null; renderYearBar();
-    } else if (chip === 'clear') {
-      estate.typeChips = new Set(); estate.ownerChips = new Set(); estate.staleChip = null;
-      estate.yearFilter = null; el('estate-table-filter').value = ''; renderYearBar();
     }
     estate.page = 1;
     renderChips(); renderTable(); updateUrl();
   });
+
+  el('estate-clear-filters').addEventListener('click', clearFilters);
 
   // "Inspect in Page view" — drill from a result row into the page analysis
   el('estate-tbody').addEventListener('click', (e) => {

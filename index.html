@@ -252,7 +252,10 @@
 
               <!-- Count + CSV together -->
               <div class="app-results-bar">
-                <p class="govuk-body-s app-muted govuk-!-margin-bottom-0" id="estate-table-count"></p>
+                <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                  <p class="govuk-body-s app-muted govuk-!-margin-bottom-0" id="estate-table-count"></p>
+                  <button class="app-chip app-chip--clear app-hidden" type="button" id="estate-clear-filters">Clear filters</button>
+                </div>
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
               </div>
 
