@@ -24,6 +24,8 @@
     }
     .app-disclaimer-footer p { margin: 0; }
     .app-hidden { display: none !important; }
+    /* Heavier field labels for prominence (but keep checkbox labels normal) */
+    .govuk-label:not(.govuk-checkboxes__label) { font-weight: 700; }
     /* Black service header (no GOV.UK crown — deliberately not a gov service) */
     .app-header { background: #0b0c0c; border-bottom: 10px solid #1d70b8; color: #ffffff; padding: 12px 0; }
     .app-header__content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 16px; }
