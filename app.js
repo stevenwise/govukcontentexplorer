@@ -723,7 +723,7 @@ async function fetchResults() {
   }
 
   estate.rows = rows;
-  estate.sort = { key: 'days', dir: 'desc' };
+  estate.sort = { key: 'updated', dir: 'asc' }; // oldest-updated first = stalest first
   estate.page = 1;
   estate.typeChips = new Set();
   estate.staleChip = null;
@@ -858,10 +858,15 @@ const COLUMNS = [
   { key: 'title', label: 'Title' },
   { key: 'owner', label: 'Editorial owner' },
   { key: 'format', label: 'Content type' },
-  { key: 'updated', label: 'Last updated' },
-  { key: 'days', label: 'Days since update' },
+  { key: 'updated', label: 'Last updated' }, // merged: date + days-since + staleness tag
   { key: 'withdrawn', label: 'Withdrawn' },
 ];
+
+// The Withdrawn column only earns its place when withdrawn pages are shown;
+// otherwise it is all dashes and just eats width.
+function visibleColumns() {
+  return COLUMNS.filter(c => c.key !== 'withdrawn' || withdrawnShown());
+}
 
 // Middle-truncate a path so both ends stay visible; full path shown on hover.
 function midTruncate(s, max = 60) {
@@ -901,8 +906,9 @@ function sortedFilteredRows() {
 }
 
 function renderTable() {
+  const cols = visibleColumns();
   const thead = el('estate-thead');
-  thead.innerHTML = '<tr class="govuk-table__row">' + COLUMNS.map(c => {
+  thead.innerHTML = '<tr class="govuk-table__row">' + cols.map(c => {
     const active = estate.sort.key === c.key;
     const arrow = active ? (estate.sort.dir === 'asc' ? ' ▲' : ' ▼') : ' ⇅';
     return `<th scope="col" class="govuk-table__header app-sort" data-key="${c.key}">${esc(c.label)}<span class="app-arrow">${arrow}</span></th>`;
@@ -921,9 +927,12 @@ function renderTable() {
   const start = (estate.page - 1) * PAGE_ROWS;
   const pageRows = rows.slice(start, start + PAGE_ROWS);
 
+  const showWd = withdrawnShown();
   el('estate-tbody').innerHTML = pageRows.map(r => {
     const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
     const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
+    const updatedCell = fmtDate(r.updated) +
+      (r.days == null ? '' : `<span class="app-days">${r.days.toLocaleString('en-GB')} days${staleTag(r.days)}</span>`);
     const withdrawnCell = r.withdrawn
       ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
       : '<span class="app-muted">—</span>';
@@ -935,9 +944,8 @@ function renderTable() {
       </td>
       <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
-      <td class="govuk-table__cell">${fmtDate(r.updated)}</td>
-      <td class="govuk-table__cell">${r.days == null ? '—' : r.days.toLocaleString('en-GB')}${staleTag(r.days)}</td>
-      <td class="govuk-table__cell">${withdrawnCell}</td>
+      <td class="govuk-table__cell">${updatedCell}</td>
+      ${showWd ? `<td class="govuk-table__cell">${withdrawnCell}</td>` : ''}
     </tr>`;
   }).join('');
 
