@@ -773,6 +773,8 @@ function updateWithdrawnToggle() {
 
 function renderCards() {
   const rows = baseRows();
+  const orgName = estate.selected.title === estate.selected.slug ? estate.selected.slug : estate.selected.title;
+  el('estate-results-heading').textContent = 'Results for ' + orgName;
   const now = Date.now();
   const within12m = rows.filter(r => r.updated && (now - Date.parse(r.updated)) < 365 * DAY).length;
   const over5 = rows.filter(r => r.days != null && r.days > AMBER_DAYS).length;
