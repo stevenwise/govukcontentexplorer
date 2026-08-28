@@ -76,9 +76,9 @@
     th.app-sort .app-arrow { color: #505a5f; font-size: 0.8em; }
     .app-card { border: 1px solid #b1b4b6; padding: 12px 15px; margin-bottom: 15px; background: #fff; height: 100%; }
     .app-card .app-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
-    /* Path as a small grey line under the title */
-    .app-path { display: block; font-size: 0.75rem; color: #505a5f; white-space: nowrap; }
-    .app-inspect { display: inline-block; font-size: 0.75rem; margin-top: 3px; }
+    /* Path as a small grey link under the title (opens the live GOV.UK page) */
+    .app-path { display: inline-block; font-size: 0.75rem; color: #505a5f; white-space: nowrap; text-decoration: underline; }
+    .app-path:hover { color: #0b0c0c; }
     /* "N days" + staleness tag, shown smaller under the last-updated date */
     .app-days { display: block; font-size: 0.75rem; color: #505a5f; margin-top: 2px; }
     .app-days-count { display: block; }
@@ -189,7 +189,7 @@
                 <p class="govuk-body-s app-muted" id="estate-total-sub"></p>
               </div>
             </div>
-            <div class="govuk-grid-column-one-half">
+            <div class="govuk-grid-column-one-half" id="estate-projected-card">
               <div class="app-panel" style="background:#eef6fb;">
                 <h3 class="govuk-heading-s govuk-!-margin-bottom-1">Projected rows for current selection</h3>
                 <p class="govuk-heading-xl govuk-!-margin-bottom-0" id="estate-projected">0</p>
@@ -255,6 +255,9 @@
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" data-module="govuk-button" type="button" id="estate-csv">Download CSV</button>
               </div>
 
+              <p class="govuk-body-s app-muted govuk-!-margin-bottom-2">
+                Select a page title to inspect it in Page view. The path beneath each title opens the live GOV.UK page in a new tab.
+              </p>
               <div style="overflow-x:auto;">
                 <table class="govuk-table" id="estate-table">
                   <thead class="govuk-table__head" id="estate-thead"></thead>
