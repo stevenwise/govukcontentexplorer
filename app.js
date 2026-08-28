@@ -943,7 +943,7 @@ function renderTable() {
     const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
     const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
     const updatedCell = fmtDateNumeric(r.updated) +
-      (r.days == null ? '' : `<span class="app-days">${r.days.toLocaleString('en-GB')} days${staleTag(r.days)}</span>`);
+      (r.days == null ? '' : `<span class="app-days"><span class="app-days-count">${r.days.toLocaleString('en-GB')} days</span>${staleTag(r.days)}</span>`);
     const withdrawnCell = r.withdrawn
       ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
       : '<span class="app-muted">—</span>';
