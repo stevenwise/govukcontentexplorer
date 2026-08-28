@@ -48,6 +48,17 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+// Compact numeric date, e.g. 01.03.26 — used in the dense results table.
+function fmtDateNumeric(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return esc(iso);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+
 function staleTag(days) {
   if (days == null) return '';
   if (days > RED_DAYS) return ' <strong class="govuk-tag govuk-tag--red">10+ years</strong>';
@@ -931,7 +942,7 @@ function renderTable() {
   el('estate-tbody').innerHTML = pageRows.map(r => {
     const stale = r.days == null ? '' : r.days > RED_DAYS ? ' app-row-red' : r.days > AMBER_DAYS ? ' app-row-amber' : '';
     const cls = stale + (r.withdrawn ? ' app-row-withdrawn' : '');
-    const updatedCell = fmtDate(r.updated) +
+    const updatedCell = fmtDateNumeric(r.updated) +
       (r.days == null ? '' : `<span class="app-days">${r.days.toLocaleString('en-GB')} days${staleTag(r.days)}</span>`);
     const withdrawnCell = r.withdrawn
       ? '<strong class="govuk-tag govuk-tag--red">Withdrawn</strong>'
