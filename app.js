@@ -111,6 +111,7 @@ function externalDomain(href) {
 function showView(which) {
   el('view-page').classList.toggle('app-hidden', which !== 'page');
   el('view-estate').classList.toggle('app-hidden', which !== 'estate');
+  el('view-about').classList.toggle('app-hidden', which !== 'about');
   document.querySelectorAll('.govuk-service-navigation__item').forEach(li => {
     const active = li.dataset.view === which;
     li.classList.toggle('govuk-service-navigation__item--active', active);
@@ -137,6 +138,7 @@ async function loadPage(path) {
   const results = el('page-results');
   results.classList.add('app-hidden');
   results.innerHTML = '';
+  el('page-empty').classList.add('app-hidden');
 
   if (!path) { status.textContent = 'Enter a GOV.UK URL, path, or page title.'; return; }
 
@@ -153,6 +155,7 @@ async function loadPage(path) {
     status.textContent = '';
     renderPage(data, path);
     results.classList.remove('app-hidden');
+    history.replaceState(null, '', '?page=/' + path); // deep link to this page
   } catch (e) {
     status.textContent = 'Could not reach the GOV.UK content API: ' + e.message;
   }
@@ -164,6 +167,7 @@ async function searchPages(query) {
   const results = el('page-results');
   results.classList.add('app-hidden');
   results.innerHTML = '';
+  el('page-empty').classList.add('app-hidden');
   status.textContent = 'Searching for “' + query + '” …';
   try {
     const r = await fetch(GOVUK + '/api/search.json?count=10&q=' + encodeURIComponent(query) +
@@ -601,6 +605,7 @@ async function fetchAggregate() {
     renderTypeCheckboxes();
     renderFormatChart();
     updateProjection();
+    el('estate-empty').classList.add('app-hidden');
     el('estate-aggregate').classList.remove('app-hidden');
   } catch (e) {
     status.textContent = 'Could not reach the search API: ' + e.message;
@@ -1257,6 +1262,16 @@ function setupEstate() {
   el('estate-select-guidance').addEventListener('click', setGuidanceTypes);
   el('estate-clear-types').addEventListener('click', clearTypes);
 
+  // Empty-state example: select the org and fetch its breakdown in one click.
+  el('estate-empty').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-estate-org]');
+    if (!a) return;
+    e.preventDefault();
+    const slug = a.dataset.estateOrg;
+    selectOrg(estate.orgs.find(o => o.slug === slug) || { slug, title: slug });
+    fetchAggregate();
+  });
+
   // Re-render the breakdown chart to its container when the details is re-opened
   // (Chart.js measures 0 while inside a collapsed <details>).
   el('estate-breakdown-details').addEventListener('toggle', (e) => {
@@ -1334,8 +1349,17 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   el('page-fetch').addEventListener('click', fetchPage);
   el('page-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchPage(); });
-  // Clicking a search result loads that page's analysis.
-  el('page-results').addEventListener('click', (e) => {
+  // Clearing the input brings the empty state (explanation + examples) back.
+  el('page-url').addEventListener('input', () => {
+    if (!(el('page-url').value || '').trim()) {
+      el('page-results').classList.add('app-hidden');
+      el('page-empty').classList.remove('app-hidden');
+      el('page-status').textContent = '';
+      history.replaceState(null, '', location.pathname);
+    }
+  });
+  // Clicking an example (empty state) or a search result loads that page's analysis.
+  el('view-page').addEventListener('click', (e) => {
     const a = e.target.closest('[data-load-path]');
     if (!a) return;
     e.preventDefault();
@@ -1344,4 +1368,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
   setupEstate();
+
+  // Deep link: ?page=/path opens Page view and loads it immediately.
+  const pageParam = new URLSearchParams(location.search).get('page');
+  if (pageParam) {
+    showView('page');
+    el('page-url').value = GOVUK + normalisePath(pageParam).replace(/^/, '/');
+    loadPage(normalisePath(pageParam));
+  }
 });

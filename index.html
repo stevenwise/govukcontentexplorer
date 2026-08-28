@@ -135,6 +135,9 @@
             <li class="govuk-service-navigation__item" data-view="estate" data-label="Estate view">
               <a class="govuk-service-navigation__link" href="#view-estate">Estate view</a>
             </li>
+            <li class="govuk-service-navigation__item" data-view="about" data-label="About">
+              <a class="govuk-service-navigation__link" href="#view-about">About</a>
+            </li>
           </ul>
         </nav>
       </div>
@@ -147,19 +150,35 @@
       <!-- ============================= PAGE VIEW ============================= -->
       <section id="view-page">
         <h1 class="govuk-heading-xl">Page view</h1>
-        <p class="govuk-body">Paste any GOV.UK URL or path to inspect ownership, structure, staleness, Welsh availability and outbound links.</p>
+        <p class="govuk-body">Shows you what GOV.UK's own APIs know about a page that the page itself doesn't tell you.</p>
 
         <div class="govuk-form-group">
-          <label class="govuk-label" for="page-url">GOV.UK URL, path, or page title</label>
-          <div id="page-url-hint" class="govuk-hint">
-            Paste a URL or path, or type a page title to search.
-          </div>
-          <input class="govuk-input" id="page-url" name="page-url" type="text" aria-describedby="page-url-hint"
-                 placeholder="URL, path, or page title">
+          <label class="govuk-label" for="page-url">GOV.UK URL, path or page title</label>
+          <input class="govuk-input" id="page-url" name="page-url" type="text">
         </div>
         <button class="govuk-button" data-module="govuk-button" id="page-fetch" type="button">Fetch page</button>
 
         <div id="page-status" class="govuk-body app-spinner" aria-live="polite"></div>
+
+        <!-- Empty state: explains the tool and offers worked examples -->
+        <div id="page-empty">
+          <h2 class="govuk-heading-m govuk-!-margin-top-6">Try an example</h2>
+          <ul class="govuk-list">
+            <li class="govuk-!-margin-bottom-4">
+              <a class="govuk-link govuk-!-font-weight-bold" href="?page=/make-court-claim-for-money" data-load-path="/make-court-claim-for-money">Who actually writes this page?</a>
+              <br><span class="govuk-body-s app-muted">The Government Digital Service holds the pen, while HMCTS is named on the page.</span>
+            </li>
+            <li class="govuk-!-margin-bottom-4">
+              <a class="govuk-link govuk-!-font-weight-bold" href="?page=/government/publications/third-party-debt-orders-and-charging-orders-ex325" data-load-path="/government/publications/third-party-debt-orders-and-charging-orders-ex325">What pages are hiding inside this one?</a>
+              <br><span class="govuk-body-s app-muted">One entry in search, four separate pages a user can land on.</span>
+            </li>
+            <li class="govuk-!-margin-bottom-4">
+              <a class="govuk-link govuk-!-font-weight-bold" href="?page=/tax-appeals" data-load-path="/tax-appeals">How old is this page really?</a>
+              <br><span class="govuk-body-s app-muted">Last updated in 2014, with three different policy owners.</span>
+            </li>
+          </ul>
+        </div>
+
         <div id="page-results" class="app-hidden"></div>
       </section>
 
@@ -179,6 +198,15 @@
         <button class="govuk-button" data-module="govuk-button" id="estate-fetch" type="button" disabled>Fetch breakdown</button>
 
         <div id="estate-status" class="govuk-body app-spinner" aria-live="polite"></div>
+
+        <!-- Empty state: one worked example -->
+        <div id="estate-empty">
+          <h2 class="govuk-heading-m govuk-!-margin-top-6">Try an example</h2>
+          <p class="govuk-!-margin-bottom-1">
+            <a class="govuk-link govuk-!-font-weight-bold" href="?org=hm-courts-and-tribunals-service" data-estate-org="hm-courts-and-tribunals-service">What does HM Courts &amp; Tribunals Service publish?</a>
+          </p>
+          <p class="govuk-body-s app-muted">98.6% of what it publishes is tribunal decisions. Filtering by content type is what makes an estate readable.</p>
+        </div>
 
         <!-- Aggregate results -->
         <div id="estate-aggregate" class="app-hidden">
@@ -267,6 +295,42 @@
               </div>
               <div id="estate-pagination"></div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================= ABOUT ============================= -->
+      <section id="view-about" class="app-hidden">
+        <h1 class="govuk-heading-xl">About</h1>
+
+        <div class="govuk-grid-row">
+          <div class="govuk-grid-column-two-thirds">
+            <p class="govuk-body">
+              A tool for looking at GOV.UK content through its own public APIs. Page view inspects a single page: who owns it, how stale it is, what pages hide inside it, whether there's a Welsh version, and what it links out to. Estate view shows what a department publishes, broken down by content type and age, as a filterable table you can export.
+            </p>
+
+            <h2 class="govuk-heading-m">Where the data comes from</h2>
+            <p class="govuk-body">Everything is fetched live, read-only, from two public GOV.UK APIs:</p>
+            <ul class="govuk-list govuk-list--bullet">
+              <li><a class="govuk-link" href="https://content-api.publishing.service.gov.uk/" target="_blank" rel="noopener">Content API</a> — the full record for a single page (Page view).</li>
+              <li><a class="govuk-link" href="https://docs.publishing.service.gov.uk/repos/search-api/using-the-search-api.html" target="_blank" rel="noopener">Search API</a> — the search index, used for the estate breakdown and title search.</li>
+            </ul>
+
+            <h2 class="govuk-heading-m">What it does not cover</h2>
+            <ul class="govuk-list govuk-list--bullet">
+              <li>GOV.UK only. Nothing on other government domains (service.gov.uk and the like).</li>
+              <li>No in-service content: the pages inside transactional services are not in these APIs.</li>
+              <li>Read-only. It never changes anything on GOV.UK.</li>
+            </ul>
+
+            <h2 class="govuk-heading-m">Editorial owner vs policy owner</h2>
+            <p class="govuk-body">
+              The least obvious thing the tool surfaces. The <strong>editorial owner</strong> (the page's <code>primary_publishing_organisation</code>) is who actually holds the pen and publishes the page. The <strong>policy owner</strong> (the associated <code>organisations</code>) is the department responsible for the policy it describes. They are often different: a mainstream guide may be editorially owned by the Government Digital Service while the policy belongs to HMCTS. The page itself only shows the policy owner, so the editorial owner is invisible unless you look here.
+            </p>
+
+            <p class="govuk-body-s app-muted govuk-!-margin-top-6">
+              Unofficial tool. Not a GOV.UK service. Built against the public GOV.UK APIs.
+            </p>
           </div>
         </div>
       </section>
