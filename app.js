@@ -48,15 +48,12 @@ function fmtDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
-// Compact numeric date, e.g. 01.03.26 — used in the dense results table.
+// Compact but unambiguous date, e.g. 3 Jul 2008 — used in the dense results table.
 function fmtDateNumeric(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (isNaN(d)) return esc(iso);
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}.${mm}.${yy}`;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function staleTag(days) {
