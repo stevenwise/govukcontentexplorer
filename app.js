@@ -981,7 +981,7 @@ function renderPagination(page, pages, total, start, shown) {
   box.innerHTML = `
     <div class="app-pager">
       <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" data-page="prev" ${page <= 1 ? 'disabled' : ''}>Previous</button>
-      <span class="govuk-body-s app-muted" style="margin:0 12px;">Page ${page} of ${pages} — rows ${from.toLocaleString('en-GB')}–${to.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')}</span>
+      <span class="govuk-body-s app-muted" style="margin:0 12px;">Page ${page} of ${pages}&nbsp;&nbsp;|&nbsp;&nbsp;rows ${from.toLocaleString('en-GB')}–${to.toLocaleString('en-GB')} of ${total.toLocaleString('en-GB')}</span>
       <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" data-page="next" ${page >= pages ? 'disabled' : ''}>Next</button>
     </div>`;
 }
