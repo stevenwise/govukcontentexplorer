@@ -673,6 +673,10 @@ const PAGE_SIZE = 1500;
 const CHART_COLOURS = ['#1d70b8', '#d4351c', '#00703c', '#f47738', '#4c2c92', '#912b88',
                        '#28a197', '#b58840', '#5694ca', '#85994b', '#6f777b', '#801650'];
 
+// Display-only abbreviations for long owner names (full name kept for CSV/hover).
+const OWNER_ABBREV = { 'Government Digital Service': 'GDS' };
+const ownerDisplay = (name) => OWNER_ABBREV[name] || name;
+
 async function fetchResults() {
   const types = checkedTypes();
   if (!estate.selected || !types.length) return;
@@ -968,7 +972,7 @@ function renderTable() {
         <span class="app-path" title="${esc(r.path)}">${esc(midTruncate(r.path))}</span>
         <a class="govuk-link app-inspect" href="#" data-inspect="${esc(r.path)}">Inspect in Page view</a>
       </td>
-      <td class="govuk-table__cell app-break">${r.owner ? esc(r.owner) : '<span class="app-muted">—</span>'}</td>
+      <td class="govuk-table__cell app-break">${r.owner ? `<span title="${esc(r.owner)}">${esc(ownerDisplay(r.owner))}</span>` : '<span class="app-muted">—</span>'}</td>
       <td class="govuk-table__cell">${esc(r.format)}</td>
       <td class="govuk-table__cell">${updatedCell}</td>
       ${showWd ? `<td class="govuk-table__cell">${withdrawnCell}</td>` : ''}
