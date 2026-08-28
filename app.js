@@ -95,8 +95,14 @@ function externalDomain(href) {
 function showView(which) {
   el('view-page').classList.toggle('app-hidden', which !== 'page');
   el('view-estate').classList.toggle('app-hidden', which !== 'estate');
-  el('nav-page').className = 'govuk-button' + (which === 'page' ? '' : ' govuk-button--secondary');
-  el('nav-estate').className = 'govuk-button' + (which === 'estate' ? '' : ' govuk-button--secondary');
+  document.querySelectorAll('.govuk-service-navigation__item').forEach(li => {
+    const active = li.dataset.view === which;
+    li.classList.toggle('govuk-service-navigation__item--active', active);
+    const link = li.querySelector('.govuk-service-navigation__link');
+    const label = li.dataset.label;
+    if (active) { link.setAttribute('aria-current', 'page'); link.innerHTML = `<strong class="govuk-service-navigation__active-fallback">${label}</strong>`; }
+    else { link.removeAttribute('aria-current'); link.textContent = label; }
+  });
 }
 
 /* ---------- Page view ---------- */
@@ -1164,8 +1170,12 @@ function setupEstate() {
 /* ---------- wire up ---------- */
 
 document.addEventListener('DOMContentLoaded', () => {
-  el('nav-page').addEventListener('click', () => showView('page'));
-  el('nav-estate').addEventListener('click', () => showView('estate'));
+  document.querySelectorAll('.govuk-service-navigation__link').forEach(a => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      showView(a.closest('.govuk-service-navigation__item').dataset.view);
+    });
+  });
   el('page-fetch').addEventListener('click', fetchPage);
   el('page-url').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchPage(); });
   setupEstate();
