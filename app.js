@@ -688,13 +688,20 @@ async function fetchResults() {
   el('estate-results').classList.add('app-hidden');
 
   // include_withdrawn brings withdrawn pages into the pull (GOV.UK's default
-  // search hides them). They are hidden in the table by default and revealed
-  // with the "Show withdrawn pages" toggle. organisations[0] is the editorial
-  // owner; is_withdrawn is a boolean. All ride along on the same request.
+  // search hides them). primary_publishing_organisation is the editorial owner
+  // (matching Page view) — the search API returns it as a slug, which we map to
+  // a title via the org list. is_withdrawn is a boolean. All ride the one request.
   const base = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(estate.selected.slug) +
     types.map(t => '&filter_format=' + encodeURIComponent(t)).join('') +
-    '&fields=title&fields=link&fields=format&fields=public_timestamp&fields=organisations&fields=is_withdrawn' +
+    '&fields=title&fields=link&fields=format&fields=public_timestamp&fields=primary_publishing_organisation&fields=is_withdrawn' +
     '&debug=include_withdrawn';
+
+  const orgTitleBySlug = new Map(estate.orgs.map(o => [o.slug, o.title]));
+  const ownerTitle = (ppo) => {
+    if (!Array.isArray(ppo) || !ppo.length) return '';
+    const slug = ppo[0];
+    return orgTitleBySlug.get(slug) || slug; // fall back to the slug if not in the list
+  };
 
   const rows = [];
   let start = 0, total = null;
@@ -714,7 +721,7 @@ async function fetchResults() {
         format: x.format || '',
         updated: x.public_timestamp || null,
         days: daysSince(x.public_timestamp),
-        owner: (Array.isArray(x.organisations) && x.organisations[0] && x.organisations[0].title) || '',
+        owner: ownerTitle(x.primary_publishing_organisation),
         withdrawn: !!x.is_withdrawn,
       }));
       start += PAGE_SIZE;
