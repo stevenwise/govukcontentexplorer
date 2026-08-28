@@ -897,9 +897,21 @@ function bandMatch(days, band) {
 // The fully filtered, sorted result set (working set → text → chips → year →
 // sort). Everything downstream — count, pagination, CSV — reads this.
 function sortedFilteredRows() {
-  const q = (el('estate-table-filter').value || '').trim().toLowerCase();
+  const raw = (el('estate-table-filter').value || '').trim().toLowerCase();
   let rows = baseRows();
-  if (q) rows = rows.filter(r => r.title.toLowerCase().includes(q) || r.path.toLowerCase().includes(q));
+  if (raw) {
+    // Commas separate OR-groups; spaces within a group are AND terms. A row
+    // matches if any group has all its terms somewhere in the title or path.
+    const orGroups = raw.split(',')
+      .map(g => g.trim().split(/\s+/).filter(Boolean))
+      .filter(g => g.length);
+    if (orGroups.length) {
+      rows = rows.filter(r => {
+        const hay = (r.title + ' ' + r.path).toLowerCase();
+        return orGroups.some(group => group.every(term => hay.includes(term)));
+      });
+    }
+  }
   if (estate.typeChips.size) rows = rows.filter(r => estate.typeChips.has(r.format));
   if (estate.staleChip) rows = rows.filter(r => bandMatch(r.days, estate.staleChip));
   if (estate.yearFilter != null) rows = rows.filter(r => r.updated && new Date(r.updated).getFullYear() === estate.yearFilter);

@@ -232,7 +232,8 @@
             <div class="app-panel">
               <div class="govuk-form-group govuk-!-margin-bottom-2">
                 <label class="govuk-label" for="estate-table-filter">Filter by title or path</label>
-                <input class="govuk-input" id="estate-table-filter" type="text" autocomplete="off">
+                <div class="govuk-hint govuk-!-margin-bottom-1" id="estate-filter-hint">Spaces match all words; commas separate alternatives — e.g. <code>court fee, tribunal</code>.</div>
+                <input class="govuk-input" id="estate-table-filter" type="text" autocomplete="off" aria-describedby="estate-filter-hint">
               </div>
               <div class="govuk-checkboxes govuk-checkboxes--small govuk-!-margin-bottom-2">
                 <div class="govuk-checkboxes__item">
