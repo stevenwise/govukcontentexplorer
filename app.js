@@ -723,7 +723,7 @@ async function fetchResults() {
       start += PAGE_SIZE;
       if (!batch.length) break; // safety against an infinite loop
     } while (rows.length < total);
-    status.textContent = `Done. ${rows.length.toLocaleString('en-GB')} items.`;
+    status.textContent = ''; // clear the progress text once results render below
   } catch (e) {
     status.textContent = 'Could not complete pagination: ' + e.message;
     el('estate-get-results').disabled = false;
