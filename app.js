@@ -1763,10 +1763,13 @@ function mapComputeUnits(pages) {
         const slug = pt.slug || ('part-' + (i + 1));
         const key = i === 0 ? canon : keyPath(canon + '/' + slug);
         if (i === 0) alias.set(keyPath(canon + '/' + slug), canon); // /guide/overview -> /guide
-        const links = mapLinksFromHtml(pt.body || '');
+        // links is a Map of targetKey -> kind ('body' | 'related') so edges can
+        // be drawn differently. Body (prose) links win if a target is both.
+        const links = new Map();
+        mapLinksFromHtml(pt.body || '').forEach(k => links.set(k, 'body'));
         // The Related content sidebar belongs to the guide as a whole; attach it
         // to the first part (the guide root) rather than repeating it on all parts.
-        if (i === 0) mapCuratedLinks(d).forEach(k => links.add(k));
+        if (i === 0) mapCuratedLinks(d).forEach(k => { if (!links.has(k)) links.set(k, 'related'); });
         units.set(key, {
           key,
           title: pt.title || p.title,
@@ -1778,13 +1781,12 @@ function mapComputeUnits(pages) {
         });
       });
     } else if (!units.has(canon)) {
-      units.set(canon, {
-        key: canon,
-        title: p.title,
-        format: p.format,
-        welsh: p.welsh,
-        links: d ? mapAllLinks(d) : new Set(),
-      });
+      const links = new Map();
+      if (d) {
+        mapExtractLinks(d).forEach(k => links.set(k, 'body'));
+        mapCuratedLinks(d).forEach(k => { if (!links.has(k)) links.set(k, 'related'); });
+      }
+      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, links });
     }
   });
   return { units, alias };
@@ -1796,19 +1798,19 @@ function mapComputeGraph(pages) {
   const canonOf = (t) => alias.get(t) || t;     // resolve /guide/overview to /guide
 
   const linkers = new Map(); // out-of-set target -> Set of in-set sources
-  const rawEdges = [];       // {src, tgt} (deduped later)
+  const rawEdges = [];       // {src, tgt, kind} (deduped later)
   units.forEach(u => {
     const src = u.key;
-    u.links.forEach(traw => {
+    u.links.forEach((kind, traw) => {
       const t = canonOf(traw);
       if (!t || t === src) return;
       if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
       if (inset.has(t)) {
-        rawEdges.push({ src, tgt: t });
+        rawEdges.push({ src, tgt: t, kind });
       } else {
         if (!linkers.has(t)) linkers.set(t, new Set());
         linkers.get(t).add(src);
-        rawEdges.push({ src, tgt: t, out: true });
+        rawEdges.push({ src, tgt: t, out: true, kind });
       }
     });
   });
@@ -1817,9 +1819,15 @@ function mapComputeGraph(pages) {
   const hubs = new Set([...linkers.entries()].filter(([, s]) => s.size >= MAP_HUB_MIN).map(([t]) => t));
   const kept = rawEdges.filter(e => !e.out || hubs.has(e.tgt));
 
-  // Dedupe edges (a page can link the same target more than once).
+  // Dedupe edges (a page can link the same target more than once). A body link
+  // wins over a related link when both exist between the same pair.
   const edgeMap = new Map();
-  kept.forEach(e => edgeMap.set(e.src + '>' + e.tgt, { src: e.src, tgt: e.tgt }));
+  kept.forEach(e => {
+    const id = e.src + '>' + e.tgt;
+    const existing = edgeMap.get(id);
+    const kind = (existing && existing.kind === 'body') || e.kind === 'body' ? 'body' : 'related';
+    edgeMap.set(id, { src: e.src, tgt: e.tgt, kind });
+  });
   const edges = [...edgeMap.values()];
 
   const indeg = new Map(); // for node sizing
@@ -1976,7 +1984,7 @@ function mapRender() {
   const present = new Set(els.map(e => e.data.id));
   shownEdges.forEach((e, i) => {
     if (!present.has(e.src) || !present.has(e.tgt)) return;
-    els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt } });
+    els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt, kind: e.kind || 'body' } });
   });
 
   if (map.cy) { map.cy.destroy(); map.cy = null; }
@@ -2000,6 +2008,12 @@ function mapRender() {
       { selector: 'edge', style: {
         'width': 1, 'line-color': '#c8ccce', 'target-arrow-color': '#c8ccce',
         'target-arrow-shape': 'triangle', 'arrow-scale': 0.7, 'curve-style': 'bezier', 'opacity': 0.45,
+      } },
+      // Curated "Related content" links: dashed and tinted, to tell them apart
+      // from prose links in the page body.
+      { selector: 'edge[kind="related"]', style: {
+        'line-style': 'dashed', 'line-dash-pattern': [5, 4],
+        'line-color': '#8f7fc9', 'target-arrow-color': '#8f7fc9', 'opacity': 0.6,
       } },
       { selector: 'node.hl', style: { 'text-opacity': 1, 'font-weight': 'bold', 'z-index': 999 } },
       { selector: 'edge.hl', style: { 'line-color': '#1d70b8', 'target-arrow-color': '#1d70b8', 'opacity': 0.9, 'width': 2 } },
@@ -2089,6 +2103,11 @@ function mapRenderLegend() {
   }
   if (map.graph.hubs.size && el('map-show-hubs').checked) {
     html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside your set)</span>`;
+  }
+  // Only explain the two edge styles when curated related links are present.
+  if (map.graph.edges.some(e => e.kind === 'related')) {
+    html += `<span class="app-legend-item"><span class="app-legend-line"></span>Body link</span>`;
+    html += `<span class="app-legend-item"><span class="app-legend-line app-legend-line--related"></span>Related content link</span>`;
   }
   el('map-legend').innerHTML = html;
 }
