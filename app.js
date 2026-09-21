@@ -111,6 +111,7 @@ function externalDomain(href) {
 function showView(which) {
   el('view-page').classList.toggle('app-hidden', which !== 'page');
   el('view-estate').classList.toggle('app-hidden', which !== 'estate');
+  el('view-map').classList.toggle('app-hidden', which !== 'map');
   el('view-about').classList.toggle('app-hidden', which !== 'about');
   document.querySelectorAll('.govuk-service-navigation__item').forEach(li => {
     const active = li.dataset.view === which;
@@ -493,6 +494,13 @@ const estate = {
 const OWNER_CHIP_CAP = 10; // show the top-N owners; the rest behind a disclosure
 
 const PAGE_ROWS = 50;
+
+// Both Estate and Map need the same organisation list; load it at most once.
+let orgsPromise = null;
+function ensureOrgs() {
+  if (!orgsPromise) orgsPromise = loadOrganisations();
+  return orgsPromise;
+}
 
 async function loadOrganisations() {
   // Primary: the Netlify Function (the one CORS-blocked endpoint).
@@ -1224,7 +1232,7 @@ async function restoreFromUrl() {
 function setupEstate() {
   const search = el('estate-org-search');
 
-  loadOrganisations().then(() => {
+  ensureOrgs().then(() => {
     if (estate.orgsSource === 'aggregate-fallback') {
       el('estate-org-hint').textContent =
         'Type to search. (Org titles unavailable, showing slugs only. The organisations Function is not reachable; deploy to Netlify or run `netlify dev` for titles.)';
@@ -1338,6 +1346,519 @@ function setupEstate() {
   });
 }
 
+/* ---------- Map view ----------
+ *
+ * WHY BODY LINKS, NOT CURATED LINKS
+ * ---------------------------------
+ * A probe of HMCTS guidance found the Content API "links" object is near-empty
+ * for real estates: no ordered_related_items, no related_guides, a single
+ * over-broad taxon. The connective tissue lives in the prose: <a> links inside
+ * details.body (and parts[].body). So the map is built from those. Most edges
+ * point OUT of the filtered set toward a few shared destinations (e.g.
+ * /find-court-tribunal), so we keep an outward destination as a node only when
+ * two or more in-set pages link to it — otherwise the graph is an unreadable
+ * hairball of one-off links. Everything is fetched live, read-only.
+ */
+
+const map = {
+  selected: null,     // {slug, title}
+  filtered: [],       // current org-combo matches
+  activeIndex: -1,    // combobox keyboard highlight
+  formats: [],        // [{slug, documents}] for the chosen org
+  cy: null,           // Cytoscape instance
+  graph: null,        // computed {inset, hubs, edges, indeg, deg, pages}
+  stats: null,
+  searchTotal: 0,
+  restoring: false,   // true while rebuilding from the URL
+};
+
+const MAP_DEFAULT_TYPES = ['detailed_guide', 'guidance'];
+const MAP_HUB_MIN = 2;      // an outward destination is a node only if 2+ in-set pages link to it
+const MAP_CONCURRENCY = 5;  // parallel Content API requests; gentle on GOV.UK
+
+// GOV.UK "chrome" paths that would otherwise dominate as fake hubs.
+const MAP_LINK_BLOCK = [/^\/help(\/|$)/, /^\/cookies/, /^\/contact(\/|$)/, /^\/sign-in/, /^\/random/];
+
+// Normalise a path to a stable node key: drop query/anchor and any trailing slash.
+const keyPath = (p) => (p || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
+
+/* ----- Map: organisation combobox (mirrors Estate's, with map- ids) ----- */
+
+function mapRenderOrgOptions(query) {
+  const list = el('map-org-list');
+  const q = (query || '').trim().toLowerCase();
+  const matches = q
+    ? estate.orgs.filter(o => o.title.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q))
+    : estate.orgs;
+  const totalMatches = matches.length;
+  map.filtered = matches.slice(0, ORG_LIST_CAP);
+  map.activeIndex = -1;
+
+  if (!map.filtered.length) {
+    list.innerHTML = '<div class="app-combo-option app-muted">No matching organisation</div>';
+  } else {
+    let html = map.filtered.map((o, i) => {
+      const showSlug = o.title !== o.slug;
+      return `<button type="button" class="app-combo-option" role="option" data-i="${i}">
+        ${esc(o.title)}${showSlug ? ' <span class="app-muted">' + esc(o.slug) + '</span>' : ''}</button>`;
+    }).join('');
+    if (totalMatches > map.filtered.length) {
+      const more = totalMatches - map.filtered.length;
+      html += `<div class="app-combo-more app-muted">Showing first ${map.filtered.length} of ${totalMatches.toLocaleString('en-GB')}. Keep typing to narrow (${more.toLocaleString('en-GB')} more).</div>`;
+    }
+    list.innerHTML = html;
+  }
+  list.classList.remove('app-hidden');
+  el('map-org-search').setAttribute('aria-expanded', 'true');
+}
+
+function mapSelectOrg(o) {
+  map.selected = o;
+  el('map-org-search').value = o.title;
+  el('map-org-list').classList.add('app-hidden');
+  el('map-org-search').setAttribute('aria-expanded', 'false');
+  el('map-load-types').disabled = false;
+  if (!map.restoring) {
+    el('map-setup').classList.add('app-hidden');
+    el('map-results').classList.add('app-hidden');
+    el('map-status').textContent = '';
+  }
+}
+
+function mapMoveActive(delta) {
+  const n = map.filtered.length;
+  if (!n) return;
+  map.activeIndex = (map.activeIndex + delta + n) % n;
+  [...el('map-org-list').querySelectorAll('.app-combo-option')].forEach((b, i) =>
+    b.classList.toggle('app-active', i === map.activeIndex));
+}
+
+/* ----- Map: content-type picker ----- */
+
+async function mapLoadTypes() {
+  if (!map.selected) return;
+  const status = el('map-status');
+  status.textContent = 'Fetching content types for ' + map.selected.slug + ' …';
+  try {
+    const url = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(map.selected.slug) +
+                '&count=0&aggregate_format=100';
+    const r = await fetch(url);
+    if (!r.ok) { status.textContent = 'GOV.UK returned ' + r.status + '.'; return; }
+    const data = await r.json();
+    status.textContent = '';
+    const opts = ((data.aggregates || {}).format || {}).options || [];
+    map.formats = opts.map(o => ({ slug: o.value.slug, documents: o.documents }))
+                      .sort((a, b) => b.documents - a.documents);
+    mapRenderTypeCheckboxes();
+    el('map-empty').classList.add('app-hidden');
+    el('map-setup').classList.remove('app-hidden');
+  } catch (e) {
+    status.textContent = 'Could not reach the search API: ' + e.message;
+  }
+}
+
+function mapRenderTypeCheckboxes() {
+  const box = el('map-checkboxes');
+  const anyDefault = map.formats.some(f => MAP_DEFAULT_TYPES.includes(f.slug));
+  box.innerHTML = map.formats.map(f => `
+    <div class="govuk-checkboxes__item">
+      <input class="govuk-checkboxes__input" id="mcb-${esc(f.slug)}" type="checkbox" value="${esc(f.slug)}" ${anyDefault && MAP_DEFAULT_TYPES.includes(f.slug) ? 'checked' : ''}>
+      <label class="govuk-label govuk-checkboxes__label" for="mcb-${esc(f.slug)}">
+        ${esc(formatLabel(f.slug))} <span class="app-muted">(${f.documents.toLocaleString('en-GB')})</span>
+      </label>
+    </div>`).join('');
+  box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', mapUpdateBuildEnabled));
+  mapUpdateBuildEnabled();
+}
+
+function mapCheckedTypes() {
+  return [...el('map-checkboxes').querySelectorAll('input:checked')].map(c => c.value);
+}
+
+function mapUpdateBuildEnabled() {
+  el('map-build').disabled = mapCheckedTypes().length === 0;
+}
+
+/* ----- Map: fetch content with limited concurrency ----- */
+
+async function mapFetchContents(paths, onProgress) {
+  const results = new Array(paths.length);
+  let i = 0;
+  async function worker() {
+    while (i < paths.length) {
+      const idx = i++;
+      try {
+        const r = await fetch(GOVUK + '/api/content' + paths[idx]);
+        results[idx] = r.ok ? await r.json() : null;
+      } catch (e) {
+        results[idx] = null;
+      }
+      onProgress();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(MAP_CONCURRENCY, paths.length) }, worker));
+  return results;
+}
+
+// Internal GOV.UK links found in a page's body (and parts), as a Set of node keys.
+function mapExtractLinks(content) {
+  if (!content) return new Set();
+  const details = content.details || {};
+  const parts = Array.isArray(details.parts) ? details.parts : [];
+  const html = (details.body || '') + parts.map(p => p.body || '').join(' ');
+  const set = new Set();
+  const re = /<a[^>]*href="([^"]+)"[^>]*>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const ip = toInternalPathOrNull(m[1]);
+    if (!ip) continue;
+    const k = keyPath(ip);
+    if (k) set.add(k);
+  }
+  return set;
+}
+
+/* ----- Map: build + render ----- */
+
+async function mapBuild() {
+  const types = mapCheckedTypes();
+  if (!map.selected || !types.length) return;
+  const cap = Math.max(10, Math.min(200, parseInt(el('map-cap').value, 10) || 100));
+  el('map-cap').value = cap;
+  const q = (el('map-q').value || '').trim();
+
+  const bs = el('map-build-status');
+  el('map-build').disabled = true;
+  el('map-results').classList.add('app-hidden');
+
+  // 1. Get the filtered page list (one search request, capped).
+  bs.textContent = 'Finding pages…';
+  const base = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(map.selected.slug) +
+    types.map(t => '&filter_format=' + encodeURIComponent(t)).join('') +
+    '&fields=title&fields=link&fields=format' +
+    (q ? '&q=' + encodeURIComponent(q) : '');
+  let list = [];
+  try {
+    const r = await fetch(base + '&count=' + cap + '&start=0');
+    if (!r.ok) { bs.textContent = 'GOV.UK returned ' + r.status + '.'; el('map-build').disabled = false; return; }
+    const data = await r.json();
+    map.searchTotal = data.total || 0;
+    list = (data.results || [])
+      .map(x => ({ path: x.link || '', title: x.title || '(untitled)', format: x.format || '' }))
+      .filter(x => x.path);
+  } catch (e) {
+    bs.textContent = 'Could not reach the search API: ' + e.message; el('map-build').disabled = false; return;
+  }
+  if (!list.length) { bs.textContent = 'No pages found for this selection.'; el('map-build').disabled = false; return; }
+
+  // 2. Fetch each page's content to read its body links.
+  el('map-progress').classList.remove('app-hidden');
+  el('map-progress-fill').style.width = '0%';
+  let done = 0;
+  const onProgress = () => {
+    done++;
+    el('map-progress-fill').style.width = Math.round((done / list.length) * 100) + '%';
+    bs.textContent = `Reading pages ${done.toLocaleString('en-GB')} of ${list.length.toLocaleString('en-GB')}…`;
+  };
+  const contents = await mapFetchContents(list.map(x => x.path), onProgress);
+  list.forEach((x, i) => { x.content = contents[i]; });
+  el('map-progress').classList.add('app-hidden');
+  bs.textContent = '';
+
+  // 3. Build the graph and draw it.
+  mapComputeGraph(list);
+  if (typeof cytoscape === 'undefined') {
+    bs.textContent = 'The graph library failed to load, so the map cannot be drawn. Check the network and reload.';
+    el('map-build').disabled = false;
+    return;
+  }
+  mapRender();
+  el('map-results').classList.remove('app-hidden');
+  el('map-build').disabled = false;
+  mapUpdateUrl();
+  if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function mapComputeGraph(pages) {
+  const inset = new Map();
+  pages.forEach(p => { const k = keyPath(p.path); if (k) inset.set(k, p); });
+
+  const linkers = new Map(); // out-of-set target -> Set of in-set sources
+  const rawEdges = [];       // {src, tgt} (deduped later)
+  pages.forEach(p => {
+    const src = keyPath(p.path);
+    if (!src) return;
+    mapExtractLinks(p.content).forEach(t => {
+      if (!t || t === src) return;
+      if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
+      if (inset.has(t)) {
+        rawEdges.push({ src, tgt: t });
+      } else {
+        if (!linkers.has(t)) linkers.set(t, new Set());
+        linkers.get(t).add(src);
+        rawEdges.push({ src, tgt: t, out: true });
+      }
+    });
+  });
+
+  // Keep an outward destination only when 2+ in-set pages point to it.
+  const hubs = new Set([...linkers.entries()].filter(([, s]) => s.size >= MAP_HUB_MIN).map(([t]) => t));
+  const kept = rawEdges.filter(e => !e.out || hubs.has(e.tgt));
+
+  // Dedupe edges (a page can link the same target more than once).
+  const edgeMap = new Map();
+  kept.forEach(e => edgeMap.set(e.src + '>' + e.tgt, { src: e.src, tgt: e.tgt }));
+  const edges = [...edgeMap.values()];
+
+  const indeg = new Map(); // for node sizing
+  const deg = new Map();   // total degree, for orphan detection
+  edges.forEach(e => {
+    indeg.set(e.tgt, (indeg.get(e.tgt) || 0) + 1);
+    deg.set(e.src, (deg.get(e.src) || 0) + 1);
+    deg.set(e.tgt, (deg.get(e.tgt) || 0) + 1);
+  });
+
+  map.graph = { inset, hubs, edges, indeg, deg, pages };
+  const withinCount = edges.filter(e => inset.has(e.tgt)).length;
+  const orphanCount = [...inset.keys()].filter(k => !deg.get(k)).length;
+  map.stats = {
+    pageCount: inset.size,
+    hubCount: hubs.size,
+    edgeCount: edges.length,
+    withinCount,
+    orphanCount,
+    searchTotal: map.searchTotal,
+  };
+}
+
+// Colour each content type present in the set, most common first.
+function mapFormatColours() {
+  const counts = {};
+  map.graph.pages.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
+  const order = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([f]) => f);
+  const cm = {};
+  order.forEach((f, i) => { cm[f] = CHART_COLOURS[i % CHART_COLOURS.length]; });
+  return cm;
+}
+
+// Prettify an outward destination path into a short label.
+function mapHubLabel(k) {
+  const seg = k.split('/').filter(Boolean).pop() || k;
+  const s = seg.replace(/-/g, ' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function mapLayout() {
+  return { name: 'cose', animate: false, fit: true, padding: 24,
+           nodeRepulsion: 9000, idealEdgeLength: 90, nestingFactor: 1.1 };
+}
+
+function mapRender() {
+  const g = map.graph;
+  if (!g) return;
+  const showHubs = el('map-show-hubs').checked;
+  const showOrphans = el('map-show-orphans').checked;
+  const cm = mapFormatColours();
+  const indegVals = [...g.indeg.values()];
+  const maxIndeg = indegVals.length ? Math.max(1, ...indegVals) : 1;
+  const sizeFor = (k) => Math.round(20 + ((g.indeg.get(k) || 0) / maxIndeg) * 46);
+
+  const els = [];
+  g.inset.forEach((p, k) => {
+    if (!showOrphans && !g.deg.get(k)) return;
+    els.push({ data: { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
+                       color: cm[p.format] || '#1d70b8', size: sizeFor(k) } });
+  });
+  if (showHubs) {
+    g.hubs.forEach(k => {
+      els.push({ data: { id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k) } });
+    });
+  }
+  const present = new Set(els.map(e => e.data.id));
+  g.edges.forEach((e, i) => {
+    if (!present.has(e.src) || !present.has(e.tgt)) return;
+    els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt } });
+  });
+
+  if (map.cy) { map.cy.destroy(); map.cy = null; }
+  map.cy = cytoscape({
+    container: el('map-graph'),
+    elements: els,
+    wheelSensitivity: 0.2,
+    style: [
+      { selector: 'node', style: {
+        'background-color': 'data(color)', 'width': 'data(size)', 'height': 'data(size)',
+        'label': 'data(label)', 'font-size': '9px', 'color': '#0b0c0c',
+        'text-wrap': 'wrap', 'text-max-width': '90px', 'text-valign': 'bottom',
+        'text-margin-y': 2, 'min-zoomed-font-size': 7,
+      } },
+      { selector: 'node[kind="hub"]', style: {
+        'shape': 'round-rectangle', 'background-color': '#f3f2f1',
+        'border-width': 2, 'border-style': 'dashed', 'border-color': '#505a5f', 'font-weight': 'bold',
+      } },
+      { selector: 'edge', style: {
+        'width': 1, 'line-color': '#b1b4b6', 'target-arrow-color': '#b1b4b6',
+        'target-arrow-shape': 'triangle', 'arrow-scale': 0.8, 'curve-style': 'bezier', 'opacity': 0.65,
+      } },
+      { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8' } },
+    ],
+    layout: mapLayout(),
+  });
+
+  map.cy.on('tap', 'node', (evt) => {
+    const p = evt.target.data('path');
+    showView('page');
+    el('page-url').value = GOVUK + '/' + String(p).replace(/^\/+/, '');
+    loadPage(normalisePath(p));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  mapRenderLegend(cm);
+  mapRenderCards();
+  const orgName = map.selected.title === map.selected.slug ? map.selected.slug : map.selected.title;
+  el('map-results-heading').textContent = 'Map of ' + orgName;
+}
+
+function mapRenderLegend(cm) {
+  const present = [...new Set(map.graph.pages.map(p => p.format))];
+  let html = present.map(f =>
+    `<span class="app-legend-item"><span class="app-legend-swatch" style="background:${cm[f] || '#1d70b8'}"></span>${esc(formatLabel(f))}</span>`).join('');
+  if (map.graph.hubs.size && el('map-show-hubs').checked) {
+    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside set)</span>`;
+  }
+  el('map-legend').innerHTML = html;
+}
+
+function mapRenderCards() {
+  const s = map.stats;
+  const card = (num, label, sub) => `
+    <div class="govuk-grid-column-one-third">
+      <div class="app-card">
+        <div class="app-num">${num}</div>
+        <div class="govuk-body-s govuk-!-margin-bottom-0">${label}</div>
+        ${sub ? '<div class="govuk-body-s app-muted">' + sub + '</div>' : ''}
+      </div>
+    </div>`;
+  const capped = s.searchTotal > s.pageCount
+    ? `first ${s.pageCount.toLocaleString('en-GB')} of ${s.searchTotal.toLocaleString('en-GB')} matching`
+    : 'all matching pages';
+  el('map-cards').innerHTML =
+    card(s.pageCount.toLocaleString('en-GB'), 'Pages mapped', capped) +
+    card(s.hubCount.toLocaleString('en-GB'), 'Shared destinations', 'linked from 2+ of your pages') +
+    card(s.withinCount.toLocaleString('en-GB'), 'Links within the set', 'page-to-page inside your selection') +
+    card(s.orphanCount.toLocaleString('en-GB'), 'Unlinked pages',
+         s.pageCount ? Math.round((s.orphanCount / s.pageCount) * 100) + '% have no links in or out' : '');
+}
+
+/* ----- Map: URL state (deep links) ----- */
+
+function mapUpdateUrl() {
+  if (map.restoring) return;
+  const p = new URLSearchParams();
+  if (map.selected) p.set('map', map.selected.slug);
+  const types = mapCheckedTypes();
+  if (types.length) p.set('mtypes', types.join(','));
+  const q = (el('map-q').value || '').trim();
+  if (q) p.set('mq', q);
+  const cap = parseInt(el('map-cap').value, 10);
+  if (cap && cap !== 100) p.set('mcap', String(cap));
+  const qs = p.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+}
+
+async function mapRestoreFromUrl() {
+  const p = new URLSearchParams(location.search);
+  const org = p.get('map');
+  if (!org) return;
+  map.restoring = true;
+  try {
+    showView('map');
+    const found = estate.orgs.find(o => o.slug === org) || { slug: org, title: org };
+    mapSelectOrg(found);
+    await mapLoadTypes();
+    const types = (p.get('mtypes') || '').split(',').map(s => s.trim()).filter(Boolean);
+    if (types.length) {
+      el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
+      if (p.get('mq')) el('map-q').value = p.get('mq');
+      if (p.get('mcap')) el('map-cap').value = p.get('mcap');
+      mapUpdateBuildEnabled();
+      await mapBuild();
+    }
+  } finally {
+    map.restoring = false;
+    mapUpdateUrl();
+  }
+}
+
+function setupMap() {
+  const search = el('map-org-search');
+
+  ensureOrgs().then(() => {
+    if (estate.orgsSource === 'aggregate-fallback') {
+      el('map-org-hint').textContent = 'Type to search. (Org titles unavailable, showing slugs only.)';
+    } else if (estate.orgsSource === 'failed') {
+      el('map-org-hint').textContent = 'Could not load the organisation list.';
+    } else {
+      el('map-org-hint').textContent = `Type to search by title or slug. ${estate.orgs.length.toLocaleString('en-GB')} organisations.`;
+    }
+    mapRestoreFromUrl();
+  });
+
+  search.addEventListener('input', () => { map.selected = null; el('map-load-types').disabled = true; mapRenderOrgOptions(search.value); });
+  search.addEventListener('focus', () => mapRenderOrgOptions(search.value));
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); mapMoveActive(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); mapMoveActive(-1); }
+    else if (e.key === 'Enter') {
+      if (map.activeIndex >= 0 && map.filtered[map.activeIndex]) { e.preventDefault(); mapSelectOrg(map.filtered[map.activeIndex]); }
+      else if (map.selected) mapLoadTypes();
+    } else if (e.key === 'Escape') { el('map-org-list').classList.add('app-hidden'); }
+  });
+
+  el('map-org-list').addEventListener('click', (e) => {
+    const btn = e.target.closest('.app-combo-option[data-i]');
+    if (btn) mapSelectOrg(map.filtered[+btn.dataset.i]);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#map-org-search') && !e.target.closest('#map-org-list')) {
+      el('map-org-list').classList.add('app-hidden');
+    }
+  });
+
+  el('map-load-types').addEventListener('click', mapLoadTypes);
+  el('map-build').addEventListener('click', mapBuild);
+  el('map-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el('map-build').disabled) mapBuild(); });
+
+  // Empty-state example: select the org, load its types, build.
+  el('map-empty').addEventListener('click', (e) => {
+    const a = e.target.closest('[data-map-org]');
+    if (!a) return;
+    e.preventDefault();
+    map.restoring = true; // reuse the restore path so it selects, loads types, and builds in one go
+    (async () => {
+      try {
+        const slug = a.dataset.mapOrg;
+        mapSelectOrg(estate.orgs.find(o => o.slug === slug) || { slug, title: slug });
+        await mapLoadTypes();
+        const types = (a.dataset.mapTypes || '').split(',').map(s => s.trim()).filter(Boolean);
+        el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
+        mapUpdateBuildEnabled();
+        await mapBuild();
+      } finally {
+        map.restoring = false;
+        mapUpdateUrl();
+      }
+    })();
+  });
+
+  // Toggles re-render the same graph (no re-fetch).
+  el('map-show-hubs').addEventListener('change', () => { if (map.graph) mapRender(); });
+  el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
+  el('map-relayout').addEventListener('click', () => { if (map.cy) map.cy.layout(mapLayout()).run(); });
+  el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
+}
+
 /* ---------- wire up ---------- */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1368,6 +1889,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
   setupEstate();
+  setupMap();
 
   // Deep link: ?page=/path opens Page view and loads it immediately.
   const pageParam = new URLSearchParams(location.search).get('page');
