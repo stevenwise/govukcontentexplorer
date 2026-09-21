@@ -8,6 +8,12 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/govuk-frontend@5/dist/govuk/govuk-frontend.min.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape@3/dist/cytoscape.min.js"></script>
+  <!-- fcose: a higher-quality force layout for dense graphs. Loaded in dependency
+       order (layout-base, cose-base, then the plugin). If any fail to load, the
+       Map falls back to Cytoscape's built-in cose layout. -->
+  <script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
   <style>
     /* We deliberately do NOT load GDS Transport: it is licensed for real
        government services only, and this is not one. Arial fallback is correct. */
@@ -112,6 +118,9 @@
     .app-legend-swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-block; flex: 0 0 auto; }
     .app-legend-swatch--hub { border-radius: 3px; background: #f3f2f1; border: 2px dashed #505a5f; box-sizing: border-box; }
     #map-progress { margin-top: 10px; }
+    /* Full-screen graph: the results panel fills the viewport. */
+    #map-panel.app-map-fullscreen { position: fixed; inset: 0; z-index: 1000; margin: 0; border: 0; background: #ffffff; overflow-y: auto; padding: 16px 20px; }
+    #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 210px); }
   </style>
 </head>
 <body class="govuk-template__body">
@@ -395,6 +404,10 @@
         <div id="map-setup" class="app-panel app-hidden">
           <h3 class="govuk-heading-m">Content types</h3>
           <p class="govuk-body-s app-muted">Body links are richest in HTML guidance. Form and publication PDFs have no readable body, so they map as isolated dots.</p>
+          <div class="govuk-button-group">
+            <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="map-select-guidance">Select guidance types</button>
+            <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="map-clear-types">Clear all</button>
+          </div>
           <div id="map-checkboxes" class="govuk-checkboxes govuk-checkboxes--small"></div>
 
           <div class="govuk-form-group govuk-!-margin-top-4">
@@ -419,7 +432,7 @@
           <h2 class="govuk-heading-l" id="map-results-heading">Map</h2>
           <div class="govuk-grid-row" id="map-cards"></div>
 
-          <div class="app-panel">
+          <div class="app-panel" id="map-panel">
             <div class="app-map-controls">
               <div class="govuk-checkboxes govuk-checkboxes--small govuk-checkboxes--inline govuk-!-margin-bottom-0">
                 <div class="govuk-checkboxes__item">
@@ -430,12 +443,21 @@
                   <input class="govuk-checkboxes__input" id="map-show-orphans" type="checkbox" checked>
                   <label class="govuk-label govuk-checkboxes__label" for="map-show-orphans">Show unlinked pages</label>
                 </div>
+                <div class="govuk-checkboxes__item">
+                  <input class="govuk-checkboxes__input" id="map-show-welsh" type="checkbox" checked>
+                  <label class="govuk-label govuk-checkboxes__label" for="map-show-welsh">Show Welsh pages <span id="map-welsh-count" class="app-muted"></span></label>
+                </div>
               </div>
               <div class="govuk-button-group govuk-!-margin-bottom-0">
+                <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fullscreen">Full screen</button>
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-relayout">Re-run layout</button>
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fit">Fit to screen</button>
               </div>
             </div>
+
+            <!-- Content-type filter chips -->
+            <div id="map-type-chips" class="app-chips"></div>
+
             <div id="map-legend" class="app-map-legend"></div>
             <div id="map-graph"></div>
             <p class="govuk-body-s app-muted govuk-!-margin-top-2">Circles are pages in your set, coloured by content type and sized by how many pages link to them. Squares are shared destinations outside your set, linked from two or more of your pages. Click any node to inspect it in Page view.</p>

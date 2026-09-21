@@ -1371,8 +1371,19 @@ const map = {
   stats: null,
   searchTotal: 0,     // org mode: total matching in the search index
   seedMeta: null,     // seed mode: {seedCount, hops, reached}
+  visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
+  fullscreen: false,
   restoring: false,   // true while rebuilding from the URL
 };
+
+// Register the fcose layout if its scripts loaded; otherwise fall back to cose.
+let mapFcoseReady = false;
+try {
+  if (typeof cytoscape !== 'undefined' && typeof cytoscapeFcose !== 'undefined') {
+    cytoscape.use(cytoscapeFcose);
+    mapFcoseReady = true;
+  }
+} catch (e) { mapFcoseReady = false; }
 
 const MAP_DEFAULT_TYPES = ['detailed_guide', 'guidance'];
 const MAP_HUB_MIN = 2;      // an outward destination is a node only if 2+ in-set pages link to it
@@ -1537,7 +1548,7 @@ async function mapBuild() {
   bs.textContent = 'Finding pages…';
   const base = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(map.selected.slug) +
     types.map(t => '&filter_format=' + encodeURIComponent(t)).join('') +
-    '&fields=title&fields=link&fields=format' +
+    '&fields=title&fields=link&fields=format&fields=locale' +
     (q ? '&q=' + encodeURIComponent(q) : '');
   let list = [];
   try {
@@ -1546,7 +1557,7 @@ async function mapBuild() {
     const data = await r.json();
     map.searchTotal = data.total || 0;
     list = (data.results || [])
-      .map(x => ({ path: x.link || '', title: x.title || '(untitled)', format: x.format || '' }))
+      .map(x => ({ path: x.link || '', title: x.title || '(untitled)', format: x.format || '', welsh: x.locale === 'cy' }))
       .filter(x => x.path);
   } catch (e) {
     bs.textContent = 'Could not reach the search API: ' + e.message; el('map-build').disabled = false; return;
@@ -1643,7 +1654,8 @@ async function mapSeedBuild() {
       batch.forEach((k, i) => {
         const d = contents[i];
         contentByKey.set(k, d);
-        pages.push({ path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '', content: d });
+        pages.push({ path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '',
+                     welsh: !!(d && d.locale === 'cy'), content: d });
       });
       if (depth + 1 > maxHops) break; // fetched the last hop's pages; do not expand further
       const next = [];
@@ -1730,14 +1742,17 @@ function mapComputeGraph(pages) {
   });
 
   map.graph = { inset, hubs, edges, indeg, deg, pages };
+  map.visibleTypes = new Set(); // a fresh build shows all content types
   const withinCount = edges.filter(e => inset.has(e.tgt)).length;
   const orphanCount = [...inset.keys()].filter(k => !deg.get(k)).length;
+  const welshCount = [...inset.values()].filter(p => p.welsh).length;
   map.stats = {
     pageCount: inset.size,
     hubCount: hubs.size,
     edgeCount: edges.length,
     withinCount,
     orphanCount,
+    welshCount,
     searchTotal: map.searchTotal,
   };
 }
@@ -1760,8 +1775,13 @@ function mapHubLabel(k) {
 }
 
 function mapLayout() {
-  return { name: 'cose', animate: false, fit: true, padding: 24,
-           nodeRepulsion: 9000, idealEdgeLength: 90, nestingFactor: 1.1 };
+  if (mapFcoseReady) {
+    return { name: 'fcose', quality: 'default', animate: false, randomize: true, fit: true,
+             padding: 30, nodeSeparation: 130, idealEdgeLength: 80, nodeRepulsion: 6500,
+             packComponents: true, gravity: 0.25, numIter: 2500 };
+  }
+  return { name: 'cose', animate: false, fit: true, padding: 30, randomize: true,
+           nodeRepulsion: 16000, idealEdgeLength: 120, componentSpacing: 160, gravity: 0.6 };
 }
 
 function mapRender() {
@@ -1769,24 +1789,49 @@ function mapRender() {
   if (!g) return;
   const showHubs = el('map-show-hubs').checked;
   const showOrphans = el('map-show-orphans').checked;
+  const showWelsh = el('map-show-welsh').checked;
+  const typeFilter = map.visibleTypes;
   const cm = mapFormatColours();
   const indegVals = [...g.indeg.values()];
   const maxIndeg = indegVals.length ? Math.max(1, ...indegVals) : 1;
-  const sizeFor = (k) => Math.round(20 + ((g.indeg.get(k) || 0) / maxIndeg) * 46);
+  const sizeFor = (k) => Math.round(18 + ((g.indeg.get(k) || 0) / maxIndeg) * 46);
+  // Only the most-linked-to pages carry a label at rest; the rest reveal on hover.
+  const majorCut = Math.max(3, Math.ceil(maxIndeg * 0.5));
 
-  const els = [];
+  // Welsh toggle state on the control label.
+  const wc = map.stats ? map.stats.welshCount : 0;
+  el('map-welsh-count').textContent = wc ? '(' + wc.toLocaleString('en-GB') + ')' : '(none)';
+  el('map-show-welsh').disabled = !wc;
+
+  // Which in-set pages survive the filters (orphan, content type, Welsh)?
+  const visiblePages = new Set();
   g.inset.forEach((p, k) => {
     if (!showOrphans && !g.deg.get(k)) return;
-    els.push({ data: { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
-                       color: cm[p.format] || '#1d70b8', size: sizeFor(k) } });
+    if (typeFilter.size && !typeFilter.has(p.format)) return;
+    if (!showWelsh && p.welsh) return;
+    visiblePages.add(k);
   });
-  if (showHubs) {
-    g.hubs.forEach(k => {
-      els.push({ data: { id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k) } });
-    });
-  }
+
+  const els = [];
+  visiblePages.forEach(k => {
+    const p = g.inset.get(k);
+    els.push({ data: { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
+                       color: cm[p.format] || '#1d70b8', size: sizeFor(k),
+                       major: (g.indeg.get(k) || 0) >= majorCut ? 1 : 0 } });
+  });
+
+  // Edges among visible pages, plus edges to hubs when hubs are shown.
+  const shownEdges = g.edges.filter(e =>
+    visiblePages.has(e.src) && (visiblePages.has(e.tgt) || (showHubs && g.hubs.has(e.tgt))));
+  // Keep only hubs actually reached by a surviving edge (no floating squares).
+  const liveHubs = new Set();
+  if (showHubs) shownEdges.forEach(e => { if (g.hubs.has(e.tgt)) liveHubs.add(e.tgt); });
+  liveHubs.forEach(k => {
+    els.push({ data: { id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k), major: 1 } });
+  });
+
   const present = new Set(els.map(e => e.data.id));
-  g.edges.forEach((e, i) => {
+  shownEdges.forEach((e, i) => {
     if (!present.has(e.src) || !present.has(e.tgt)) return;
     els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt } });
   });
@@ -1801,20 +1846,33 @@ function mapRender() {
         'background-color': 'data(color)', 'width': 'data(size)', 'height': 'data(size)',
         'label': 'data(label)', 'font-size': '9px', 'color': '#0b0c0c',
         'text-wrap': 'wrap', 'text-max-width': '90px', 'text-valign': 'bottom',
-        'text-margin-y': 2, 'min-zoomed-font-size': 7,
+        'text-margin-y': 2, 'min-zoomed-font-size': 8, 'text-opacity': 0,
       } },
+      { selector: 'node[major = 1]', style: { 'text-opacity': 1 } },
       { selector: 'node[kind="hub"]', style: {
         'shape': 'round-rectangle', 'background-color': '#f3f2f1',
         'border-width': 2, 'border-style': 'dashed', 'border-color': '#505a5f', 'font-weight': 'bold',
       } },
       { selector: 'edge', style: {
-        'width': 1, 'line-color': '#b1b4b6', 'target-arrow-color': '#b1b4b6',
-        'target-arrow-shape': 'triangle', 'arrow-scale': 0.8, 'curve-style': 'bezier', 'opacity': 0.65,
+        'width': 1, 'line-color': '#c8ccce', 'target-arrow-color': '#c8ccce',
+        'target-arrow-shape': 'triangle', 'arrow-scale': 0.7, 'curve-style': 'bezier', 'opacity': 0.45,
       } },
-      { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8' } },
+      { selector: 'node.hl', style: { 'text-opacity': 1, 'font-weight': 'bold', 'z-index': 999 } },
+      { selector: 'edge.hl', style: { 'line-color': '#1d70b8', 'target-arrow-color': '#1d70b8', 'opacity': 0.9, 'width': 2 } },
+      { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8', 'text-opacity': 1 } },
     ],
     layout: mapLayout(),
   });
+
+  // Hover reveals a node's label and lights up its immediate links.
+  map.cy.on('mouseover', 'node', (evt) => {
+    const n = evt.target;
+    n.addClass('hl');
+    const e = n.connectedEdges();
+    e.addClass('hl');
+    e.connectedNodes().addClass('hl');
+  });
+  map.cy.on('mouseout', 'node', () => { map.cy.elements('.hl').removeClass('hl'); });
 
   map.cy.on('tap', 'node', (evt) => {
     const p = evt.target.data('path');
@@ -1824,7 +1882,8 @@ function mapRender() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
-  mapRenderLegend(cm);
+  mapRenderTypeChips(cm);
+  mapRenderLegend();
   mapRenderCards();
   if (map.mode === 'seed') {
     el('map-results-heading').textContent = 'Service map';
@@ -1834,14 +1893,58 @@ function mapRender() {
   }
 }
 
-function mapRenderLegend(cm) {
-  const present = [...new Set(map.graph.pages.map(p => p.format))];
-  let html = present.map(f =>
-    `<span class="app-legend-item"><span class="app-legend-swatch" style="background:${cm[f] || '#1d70b8'}"></span>${esc(formatLabel(f))}</span>`).join('');
+// Content-type filter chips over the graph. Empty selection shows all; picking
+// one or more shows only those. Present in both modes.
+function mapRenderTypeChips(cm) {
+  const box = el('map-type-chips');
+  const counts = {};
+  map.graph.inset.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
+  const types = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (types.length <= 1) { box.innerHTML = ''; return; } // nothing to filter by
+  const chip = (t, n) => {
+    const active = map.visibleTypes.has(t);
+    return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(t)}">
+      <span class="app-legend-swatch" style="background:${cm[t] || '#1d70b8'};width:10px;height:10px;margin-right:5px;"></span>${esc(formatLabel(t) || 'Unknown')} (${n.toLocaleString('en-GB')})</button>`;
+  };
+  let html = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>` +
+    types.map(([t, n]) => chip(t, n)).join(' ');
+  if (map.visibleTypes.size) html += ` <button type="button" class="app-chip app-chip--clear" data-type-clear="1">Clear</button>`;
+  html += `</div>`;
+  box.innerHTML = html;
+}
+
+function mapRenderLegend() {
+  // The content-type chips carry the colour key when there is more than one type,
+  // so the legend only repeats a single type, plus the shared-destination marker.
+  const present = [...new Set(map.graph.pages.map(p => p.format))].filter(Boolean);
+  const cm = mapFormatColours();
+  let html = '';
+  if (present.length === 1) {
+    html += `<span class="app-legend-item"><span class="app-legend-swatch" style="background:${cm[present[0]] || '#1d70b8'}"></span>${esc(formatLabel(present[0]))}</span>`;
+  }
   if (map.graph.hubs.size && el('map-show-hubs').checked) {
-    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside set)</span>`;
+    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside your set)</span>`;
   }
   el('map-legend').innerHTML = html;
+}
+
+// Org mode: mirror Estate view's quick guidance-type selection.
+function mapSetGuidanceTypes() {
+  el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = GUIDANCE_TYPES.includes(cb.value); });
+  mapUpdateBuildEnabled();
+}
+function mapClearTypes() {
+  el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
+  mapUpdateBuildEnabled();
+}
+
+// Expand the graph panel to fill the viewport (and back).
+function mapToggleFullscreen(force) {
+  map.fullscreen = force != null ? force : !map.fullscreen;
+  el('map-panel').classList.toggle('app-map-fullscreen', map.fullscreen);
+  el('map-fullscreen').textContent = map.fullscreen ? 'Exit full screen' : 'Full screen';
+  document.body.style.overflow = map.fullscreen ? 'hidden' : '';
+  if (map.cy) setTimeout(() => { map.cy.resize(); map.cy.fit(undefined, 24); }, 60);
 }
 
 function mapRenderCards() {
@@ -2007,11 +2110,33 @@ function setupMap() {
     })();
   });
 
-  // Toggles re-render the same graph (no re-fetch).
+  // Org mode: quick guidance-type selection (mirrors Estate view).
+  el('map-select-guidance').addEventListener('click', mapSetGuidanceTypes);
+  el('map-clear-types').addEventListener('click', mapClearTypes);
+
+  // Toggles and filters re-render the same graph (no re-fetch).
   el('map-show-hubs').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
+  el('map-show-welsh').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-relayout').addEventListener('click', () => { if (map.cy) map.cy.layout(mapLayout()).run(); });
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
+  el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
+
+  // Content-type filter chips.
+  el('map-type-chips').addEventListener('click', (e) => {
+    const clear = e.target.closest('[data-type-clear]');
+    const chip = e.target.closest('[data-type]');
+    if (clear) { map.visibleTypes.clear(); mapRender(); return; }
+    if (!chip) return;
+    const t = chip.dataset.type;
+    if (map.visibleTypes.has(t)) map.visibleTypes.delete(t); else map.visibleTypes.add(t);
+    mapRender();
+  });
+
+  // Esc leaves full screen.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && map.fullscreen) mapToggleFullscreen(false);
+  });
 }
 
 /* ---------- wire up ---------- */
