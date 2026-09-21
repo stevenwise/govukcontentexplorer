@@ -1749,6 +1749,8 @@ function mapComputeUnits(pages) {
           format: (d && d.document_type) || p.format,
           welsh: !!(d && d.locale === 'cy'),
           links: mapLinksFromHtml(pt.body || ''),
+          guide: canon,          // which guide this part belongs to
+          guideTitle: p.title,   // the guide's own title, for the group box label
         });
       });
     } else if (!units.has(canon)) {
@@ -1843,8 +1845,12 @@ function mapLayout() {
   // rather than shrunk to a dense dot-cloud.
   if (mapFcoseReady) {
     return { name: 'fcose', quality: 'proof', animate: false, randomize: true, fit: false,
-             padding: 40, nodeSeparation: 260, idealEdgeLength: 170, nodeRepulsion: 16000,
-             edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4, packComponents: true, numIter: 3000 };
+             padding: 40, nodeSeparation: 220, idealEdgeLength: 170, nodeRepulsion: 16000,
+             edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4,
+             // Pull each guide box's parts tightly toward their group so a guide
+             // reads as one cluster while the map as a whole stays spread out.
+             gravityCompound: 2.4, gravityRangeCompound: 2,
+             packComponents: true, numIter: 3000 };
   }
   return { name: 'cose', animate: false, fit: false, padding: 40, randomize: true,
            nodeRepulsion: 32000, idealEdgeLength: 180, componentSpacing: 220, gravity: 0.35 };
@@ -1905,12 +1911,29 @@ function mapRender() {
     visiblePages.add(k);
   });
 
+  // Group the visible parts of each multi-part guide into a compound box, so a
+  // guide reads as one thing. Only when 2+ of its parts are actually on screen.
+  const guideVisible = new Map(); // guide canon -> [visible part keys]
+  visiblePages.forEach(k => {
+    const u = g.inset.get(k);
+    if (u.guide) { (guideVisible.get(u.guide) || guideVisible.set(u.guide, []).get(u.guide)).push(k); }
+  });
+  const groupTitle = new Map(); // guide canon -> title, for guides that earn a box
+  guideVisible.forEach((keys, guide) => {
+    if (keys.length >= 2) groupTitle.set(guide, g.inset.get(keys[0]).guideTitle);
+  });
+
   const els = [];
+  groupTitle.forEach((title, guide) => {
+    els.push({ data: { id: 'grp:' + guide, label: title, kind: 'group' } });
+  });
   visiblePages.forEach(k => {
     const p = g.inset.get(k);
-    els.push({ data: { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
-                       color: cm[p.format] || '#1d70b8', size: sizeFor(k),
-                       major: (g.indeg.get(k) || 0) >= majorCut ? 1 : 0 } });
+    const data = { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
+                   color: cm[p.format] || '#1d70b8', size: sizeFor(k),
+                   major: (g.indeg.get(k) || 0) >= majorCut ? 1 : 0 };
+    if (p.guide && groupTitle.has(p.guide)) data.parent = 'grp:' + p.guide;
+    els.push({ data });
   });
 
   // Edges among visible pages, plus edges to hubs when hubs are shown.
@@ -1954,6 +1977,14 @@ function mapRender() {
       { selector: 'node.hl', style: { 'text-opacity': 1, 'font-weight': 'bold', 'z-index': 999 } },
       { selector: 'edge.hl', style: { 'line-color': '#1d70b8', 'target-arrow-color': '#1d70b8', 'opacity': 0.9, 'width': 2 } },
       { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8', 'text-opacity': 1 } },
+      // Guide group box (compound parent): a faint labelled container.
+      { selector: ':parent', style: {
+        'shape': 'round-rectangle', 'background-color': '#f3f2f1', 'background-opacity': 0.55,
+        'border-width': 1, 'border-style': 'dashed', 'border-color': '#8f9296', 'padding': 16,
+        'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': 4,
+        'font-size': '12px', 'font-weight': 'bold', 'color': '#505a5f', 'text-opacity': 1,
+        'text-wrap': 'wrap', 'text-max-width': '160px', 'events': 'no',
+      } },
     ],
   });
 
@@ -1975,6 +2006,7 @@ function mapRender() {
   // Single tap: focus and zoom to the node. Double tap: open it in Page view.
   map.cy.on('tap', 'node', (evt) => {
     const n = evt.target;
+    if (n.isParent()) return; // the guide box is a container, not a page
     const now = Date.now();
     if (mapTap.id === n.id() && (now - mapTap.t) < 350) {
       clearTimeout(mapTap.timer);
