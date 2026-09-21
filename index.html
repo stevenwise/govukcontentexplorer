@@ -319,15 +319,60 @@
         <h1 class="govuk-heading-xl">Map view</h1>
         <p class="govuk-body">Draws how a filtered set of pages connects, using the links inside each page's body text. Curated relationship links are near-empty on most estates, so this reads the prose links instead, and shows the shared pages your set funnels users toward.</p>
 
-        <!-- Organisation picker (searchable) -->
+        <!-- Mode switch: a whole organisation, or a service traced from its start pages -->
         <div class="govuk-form-group">
-          <label class="govuk-label" for="map-org-search">Organisation</label>
-          <div id="map-org-hint" class="govuk-hint">Type to search by title or slug.</div>
-          <input class="govuk-input" id="map-org-search" type="text" autocomplete="off"
-                 aria-describedby="map-org-hint" aria-expanded="false" aria-controls="map-org-list" role="combobox">
-          <div id="map-org-list" role="listbox" class="app-combo-list app-hidden"></div>
+          <fieldset class="govuk-fieldset">
+            <legend class="govuk-fieldset__legend govuk-fieldset__legend--s">Which pages do you want to map?</legend>
+            <div class="govuk-radios govuk-radios--small govuk-radios--inline" id="map-mode">
+              <div class="govuk-radios__item">
+                <input class="govuk-radios__input" id="map-mode-org" name="map-mode" type="radio" value="org" checked>
+                <label class="govuk-label govuk-radios__label" for="map-mode-org">An organisation's content types</label>
+              </div>
+              <div class="govuk-radios__item">
+                <input class="govuk-radios__input" id="map-mode-seed" name="map-mode" type="radio" value="seed">
+                <label class="govuk-label govuk-radios__label" for="map-mode-seed">A service, traced from its start page</label>
+              </div>
+            </div>
+          </fieldset>
         </div>
-        <button class="govuk-button" data-module="govuk-button" id="map-load-types" type="button" disabled>Choose content types</button>
+
+        <!-- Mode A: organisation picker (searchable) -->
+        <div id="map-org-mode">
+          <div class="govuk-form-group">
+            <label class="govuk-label" for="map-org-search">Organisation</label>
+            <div id="map-org-hint" class="govuk-hint">Type to search by title or slug.</div>
+            <input class="govuk-input" id="map-org-search" type="text" autocomplete="off"
+                   aria-describedby="map-org-hint" aria-expanded="false" aria-controls="map-org-list" role="combobox">
+            <div id="map-org-list" role="listbox" class="app-combo-list app-hidden"></div>
+          </div>
+          <button class="govuk-button" data-module="govuk-button" id="map-load-types" type="button" disabled>Choose content types</button>
+        </div>
+
+        <!-- Mode B: seed and crawl from one or more start pages (a service) -->
+        <div id="map-seed-mode" class="app-hidden">
+          <div class="govuk-form-group">
+            <label class="govuk-label" for="map-seeds">Start page(s)</label>
+            <div class="govuk-hint" id="map-seeds-hint">A GOV.UK URL or path, one per line. The map follows the links out from these pages to trace the service. A good start page is the one a user actually begins on, for example <code>/make-court-claim-for-money</code>.</div>
+            <textarea class="govuk-textarea" id="map-seeds" rows="3" aria-describedby="map-seeds-hint"></textarea>
+          </div>
+          <div class="govuk-form-group">
+            <label class="govuk-label" for="map-hops">How far to follow links</label>
+            <select class="govuk-select" id="map-hops">
+              <option value="1">1 hop: the start pages and what they link to</option>
+              <option value="2" selected>2 hops: and what those pages link to</option>
+            </select>
+          </div>
+          <div class="govuk-form-group">
+            <label class="govuk-label" for="map-seed-cap">Maximum pages to map</label>
+            <div class="govuk-hint" id="map-seed-cap-hint">Each page is one live request to GOV.UK. Higher is slower and busier for the API. Up to 300.</div>
+            <input class="govuk-input govuk-input--width-5" id="map-seed-cap" type="number" min="10" max="300" value="150" aria-describedby="map-seed-cap-hint">
+          </div>
+          <button class="govuk-button" data-module="govuk-button" id="map-seed-build" type="button">Build map</button>
+          <div id="map-seed-status" class="govuk-body app-spinner" aria-live="polite"></div>
+          <div id="map-seed-progress" class="app-hidden">
+            <div class="app-typebar-track"><div class="app-typebar-fill" id="map-seed-progress-fill" style="width:0%;background:#1d70b8"></div></div>
+          </div>
+        </div>
 
         <div id="map-status" class="govuk-body app-spinner" aria-live="polite"></div>
 
@@ -338,6 +383,10 @@
             <li class="govuk-!-margin-bottom-4">
               <a class="govuk-link govuk-!-font-weight-bold" href="?map=hm-courts-and-tribunals-service&amp;mtypes=detailed_guide" data-map-org="hm-courts-and-tribunals-service" data-map-types="detailed_guide">How do HMCTS guides connect?</a>
               <br><span class="govuk-body-s app-muted">Most don't link to each other. They funnel users toward a handful of shared tools, like Find a court and Get help with court fees.</span>
+            </li>
+            <li class="govuk-!-margin-bottom-4">
+              <a class="govuk-link govuk-!-font-weight-bold" href="?mseeds=/make-court-claim-for-money&amp;mhops=2" data-map-seed="/make-court-claim-for-money" data-map-hops="2">Map the Civil Money Claims service.</a>
+              <br><span class="govuk-body-s app-muted">Traced from its start page, following links across GDS and HMCTS: the claim forms, the fee help, the enforcement steps.</span>
             </li>
           </ul>
         </div>

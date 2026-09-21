@@ -1361,6 +1361,7 @@ function setupEstate() {
  */
 
 const map = {
+  mode: 'org',        // 'org' (filter an organisation) | 'seed' (trace a service)
   selected: null,     // {slug, title}
   filtered: [],       // current org-combo matches
   activeIndex: -1,    // combobox keyboard highlight
@@ -1368,7 +1369,8 @@ const map = {
   cy: null,           // Cytoscape instance
   graph: null,        // computed {inset, hubs, edges, indeg, deg, pages}
   stats: null,
-  searchTotal: 0,
+  searchTotal: 0,     // org mode: total matching in the search index
+  seedMeta: null,     // seed mode: {seedCount, hops, reached}
   restoring: false,   // true while rebuilding from the URL
 };
 
@@ -1579,6 +1581,115 @@ async function mapBuild() {
   if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+/* ----- Map: seed-and-crawl mode (trace a service from its start pages) ----- */
+
+function mapSetMode(mode) {
+  map.mode = mode === 'seed' ? 'seed' : 'org';
+  el('map-org-mode').classList.toggle('app-hidden', map.mode !== 'org');
+  el('map-seed-mode').classList.toggle('app-hidden', map.mode !== 'seed');
+  // A mode switch invalidates the org flow's type panel; hide it so the two
+  // modes never show stale controls from each other.
+  if (map.mode === 'seed') el('map-setup').classList.add('app-hidden');
+  if (!map.restoring) mapUpdateUrl();
+}
+
+// Parse the seed textarea into normalised, leading-slash node keys.
+function mapReadSeeds() {
+  const raw = el('map-seeds').value || '';
+  const keys = raw.split(/[\n,]+/)
+    .map(s => normalisePath(s))        // full URL or path -> bare path
+    .filter(Boolean)
+    .map(p => keyPath('/' + p));       // -> '/path' with no trailing slash
+  return [...new Set(keys)].filter(Boolean);
+}
+
+// Breadth-first crawl: fetch the seeds, follow their body links outward up to
+// maxHops, fetching every page reached (so we can draw within-set edges and read
+// titles), bounded by a hard cap on total pages. The pages we fetch become the
+// "in set" nodes; links from them to pages we did not fetch become the outward
+// hub squares, exactly as in organisation mode.
+async function mapSeedBuild() {
+  if (map.mode !== 'seed') return;
+  const seeds = mapReadSeeds();
+  const bs = el('map-seed-status');
+  if (!seeds.length) { bs.textContent = 'Enter at least one GOV.UK URL or path to start from.'; return; }
+  const maxHops = parseInt(el('map-hops').value, 10) === 1 ? 1 : 2;
+  const cap = Math.max(10, Math.min(300, parseInt(el('map-seed-cap').value, 10) || 150));
+  el('map-seed-cap').value = cap;
+
+  el('map-seed-build').disabled = true;
+  el('map-results').classList.add('app-hidden');
+  el('map-seed-progress').classList.remove('app-hidden');
+  el('map-seed-progress-fill').style.width = '0%';
+
+  const discovered = new Set(seeds); // every key we have queued or fetched
+  const fetchedKeys = new Set();
+  const contentByKey = new Map();
+  const pages = [];
+  let fetchedCount = 0;
+  const onProgress = () => {
+    fetchedCount++;
+    el('map-seed-progress-fill').style.width = Math.round((fetchedCount / cap) * 100) + '%';
+    bs.textContent = `Reading pages ${fetchedCount.toLocaleString('en-GB')}…`;
+  };
+
+  let toFetch = [...seeds];
+  let depth = 0;
+  try {
+    while (toFetch.length && fetchedKeys.size < cap) {
+      const batch = toFetch.filter(k => !fetchedKeys.has(k)).slice(0, cap - fetchedKeys.size);
+      batch.forEach(k => fetchedKeys.add(k));
+      const contents = await mapFetchContents(batch, onProgress); // key is '/path' -> Content API path
+      batch.forEach((k, i) => {
+        const d = contents[i];
+        contentByKey.set(k, d);
+        pages.push({ path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '', content: d });
+      });
+      if (depth + 1 > maxHops) break; // fetched the last hop's pages; do not expand further
+      const next = [];
+      batch.forEach(k => {
+        mapExtractLinks(contentByKey.get(k)).forEach(t => {
+          if (!t || discovered.has(t)) return;
+          if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
+          discovered.add(t);
+          next.push(t);
+        });
+      });
+      toFetch = next;
+      depth++;
+    }
+  } catch (e) {
+    bs.textContent = 'Could not complete the crawl: ' + e.message;
+    el('map-seed-progress').classList.add('app-hidden');
+    el('map-seed-build').disabled = false;
+    return;
+  }
+
+  el('map-seed-progress').classList.add('app-hidden');
+  bs.textContent = '';
+
+  const reachable = pages.filter(p => p.content).length;
+  if (!reachable) {
+    bs.textContent = 'None of those start pages returned content from the GOV.UK Content API. Check the path, for example /make-court-claim-for-money.';
+    el('map-seed-build').disabled = false;
+    return;
+  }
+
+  map.seedMeta = { seedCount: seeds.length, hops: maxHops, reached: pages.length };
+  mapComputeGraph(pages);
+  if (typeof cytoscape === 'undefined') {
+    bs.textContent = 'The graph library failed to load, so the map cannot be drawn. Check the network and reload.';
+    el('map-seed-build').disabled = false;
+    return;
+  }
+  mapRender();
+  el('map-empty').classList.add('app-hidden');
+  el('map-results').classList.remove('app-hidden');
+  el('map-seed-build').disabled = false;
+  mapUpdateUrl();
+  if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function mapComputeGraph(pages) {
   const inset = new Map();
   pages.forEach(p => { const k = keyPath(p.path); if (k) inset.set(k, p); });
@@ -1715,8 +1826,12 @@ function mapRender() {
 
   mapRenderLegend(cm);
   mapRenderCards();
-  const orgName = map.selected.title === map.selected.slug ? map.selected.slug : map.selected.title;
-  el('map-results-heading').textContent = 'Map of ' + orgName;
+  if (map.mode === 'seed') {
+    el('map-results-heading').textContent = 'Service map';
+  } else {
+    const orgName = map.selected.title === map.selected.slug ? map.selected.slug : map.selected.title;
+    el('map-results-heading').textContent = 'Map of ' + orgName;
+  }
 }
 
 function mapRenderLegend(cm) {
@@ -1739,11 +1854,16 @@ function mapRenderCards() {
         ${sub ? '<div class="govuk-body-s app-muted">' + sub + '</div>' : ''}
       </div>
     </div>`;
-  const capped = s.searchTotal > s.pageCount
-    ? `first ${s.pageCount.toLocaleString('en-GB')} of ${s.searchTotal.toLocaleString('en-GB')} matching`
-    : 'all matching pages';
+  let firstSub;
+  if (map.mode === 'seed' && map.seedMeta) {
+    firstSub = `from ${map.seedMeta.seedCount} start page${map.seedMeta.seedCount === 1 ? '' : 's'}, ${map.seedMeta.hops} hop${map.seedMeta.hops === 1 ? '' : 's'}`;
+  } else {
+    firstSub = s.searchTotal > s.pageCount
+      ? `first ${s.pageCount.toLocaleString('en-GB')} of ${s.searchTotal.toLocaleString('en-GB')} matching`
+      : 'all matching pages';
+  }
   el('map-cards').innerHTML =
-    card(s.pageCount.toLocaleString('en-GB'), 'Pages mapped', capped) +
+    card(s.pageCount.toLocaleString('en-GB'), 'Pages mapped', firstSub) +
     card(s.hubCount.toLocaleString('en-GB'), 'Shared destinations', 'linked from 2+ of your pages') +
     card(s.withinCount.toLocaleString('en-GB'), 'Links within the set', 'page-to-page inside your selection') +
     card(s.orphanCount.toLocaleString('en-GB'), 'Unlinked pages',
@@ -1755,34 +1875,53 @@ function mapRenderCards() {
 function mapUpdateUrl() {
   if (map.restoring) return;
   const p = new URLSearchParams();
-  if (map.selected) p.set('map', map.selected.slug);
-  const types = mapCheckedTypes();
-  if (types.length) p.set('mtypes', types.join(','));
-  const q = (el('map-q').value || '').trim();
-  if (q) p.set('mq', q);
-  const cap = parseInt(el('map-cap').value, 10);
-  if (cap && cap !== 100) p.set('mcap', String(cap));
+  if (map.mode === 'seed') {
+    const seeds = mapReadSeeds();
+    if (seeds.length) p.set('mseeds', seeds.join('|')); // paths never contain a pipe
+    const hops = parseInt(el('map-hops').value, 10);
+    if (hops === 1) p.set('mhops', '1');
+    const cap = parseInt(el('map-seed-cap').value, 10);
+    if (cap && cap !== 150) p.set('mscap', String(cap));
+  } else {
+    if (map.selected) p.set('map', map.selected.slug);
+    const types = mapCheckedTypes();
+    if (types.length) p.set('mtypes', types.join(','));
+    const q = (el('map-q').value || '').trim();
+    if (q) p.set('mq', q);
+    const cap = parseInt(el('map-cap').value, 10);
+    if (cap && cap !== 100) p.set('mcap', String(cap));
+  }
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
 
 async function mapRestoreFromUrl() {
   const p = new URLSearchParams(location.search);
+  const seeds = p.get('mseeds');
   const org = p.get('map');
-  if (!org) return;
+  if (!seeds && !org) return;
   map.restoring = true;
   try {
     showView('map');
-    const found = estate.orgs.find(o => o.slug === org) || { slug: org, title: org };
-    mapSelectOrg(found);
-    await mapLoadTypes();
-    const types = (p.get('mtypes') || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (types.length) {
-      el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
-      if (p.get('mq')) el('map-q').value = p.get('mq');
-      if (p.get('mcap')) el('map-cap').value = p.get('mcap');
-      mapUpdateBuildEnabled();
-      await mapBuild();
+    if (seeds) {
+      el('map-mode-seed').checked = true;
+      mapSetMode('seed');
+      el('map-seeds').value = seeds.split('|').join('\n');
+      if (p.get('mhops') === '1') el('map-hops').value = '1';
+      if (p.get('mscap')) el('map-seed-cap').value = p.get('mscap');
+      await mapSeedBuild();
+    } else {
+      const found = estate.orgs.find(o => o.slug === org) || { slug: org, title: org };
+      mapSelectOrg(found);
+      await mapLoadTypes();
+      const types = (p.get('mtypes') || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (types.length) {
+        el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
+        if (p.get('mq')) el('map-q').value = p.get('mq');
+        if (p.get('mcap')) el('map-cap').value = p.get('mcap');
+        mapUpdateBuildEnabled();
+        await mapBuild();
+      }
     }
   } finally {
     map.restoring = false;
@@ -1830,21 +1969,37 @@ function setupMap() {
   el('map-build').addEventListener('click', mapBuild);
   el('map-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el('map-build').disabled) mapBuild(); });
 
-  // Empty-state example: select the org, load its types, build.
+  // Mode switch (organisation vs service seed-and-crawl)
+  el('map-mode').addEventListener('change', (e) => {
+    if (e.target.name === 'map-mode') mapSetMode(e.target.value);
+  });
+  el('map-seed-build').addEventListener('click', mapSeedBuild);
+
+  // Empty-state examples: one per mode. Reuse the restore path so a single click
+  // sets everything up and builds.
   el('map-empty').addEventListener('click', (e) => {
-    const a = e.target.closest('[data-map-org]');
-    if (!a) return;
+    const seedLink = e.target.closest('[data-map-seed]');
+    const orgLink = e.target.closest('[data-map-org]');
+    if (!seedLink && !orgLink) return;
     e.preventDefault();
-    map.restoring = true; // reuse the restore path so it selects, loads types, and builds in one go
+    map.restoring = true;
     (async () => {
       try {
-        const slug = a.dataset.mapOrg;
-        mapSelectOrg(estate.orgs.find(o => o.slug === slug) || { slug, title: slug });
-        await mapLoadTypes();
-        const types = (a.dataset.mapTypes || '').split(',').map(s => s.trim()).filter(Boolean);
-        el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
-        mapUpdateBuildEnabled();
-        await mapBuild();
+        if (seedLink) {
+          el('map-mode-seed').checked = true;
+          mapSetMode('seed');
+          el('map-seeds').value = seedLink.dataset.mapSeed.split('|').join('\n');
+          if (seedLink.dataset.mapHops === '1') el('map-hops').value = '1';
+          await mapSeedBuild();
+        } else {
+          const slug = orgLink.dataset.mapOrg;
+          mapSelectOrg(estate.orgs.find(o => o.slug === slug) || { slug, title: slug });
+          await mapLoadTypes();
+          const types = (orgLink.dataset.mapTypes || '').split(',').map(s => s.trim()).filter(Boolean);
+          el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
+          mapUpdateBuildEnabled();
+          await mapBuild();
+        }
       } finally {
         map.restoring = false;
         mapUpdateUrl();
