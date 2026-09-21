@@ -2117,8 +2117,14 @@ function mapRenderTypeChips(cm) {
     return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(t)}">
       <span class="app-legend-swatch" style="background:${cm[t] || '#1d70b8'};width:10px;height:10px;margin-right:5px;"></span>${esc(formatLabel(t) || 'Unknown')} (${n.toLocaleString('en-GB')})</button>`;
   };
-  let html = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>` +
-    types.map(([t, n]) => chip(t, n)).join(' ');
+  let html = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>`;
+  // One-click shortcut to filter the map to guidance content types (like Estate view).
+  const presentGuidance = types.map(([t]) => t).filter(t => GUIDANCE_TYPES.includes(t));
+  if (presentGuidance.length) {
+    const allActive = map.visibleTypes.size === presentGuidance.length && presentGuidance.every(t => map.visibleTypes.has(t));
+    html += `<button type="button" class="app-chip app-chip--more${allActive ? ' app-chip--active' : ''}" data-type-guidance="1">Guidance types</button> `;
+  }
+  html += types.map(([t, n]) => chip(t, n)).join(' ');
   if (map.visibleTypes.size) html += ` <button type="button" class="app-chip app-chip--clear" data-type-clear="1">Clear</button>`;
   html += `</div>`;
   box.innerHTML = html;
@@ -2349,8 +2355,16 @@ function setupMap() {
   // Content-type filter chips.
   el('map-type-chips').addEventListener('click', (e) => {
     const clear = e.target.closest('[data-type-clear]');
+    const guidance = e.target.closest('[data-type-guidance]');
     const chip = e.target.closest('[data-type]');
     if (clear) { map.visibleTypes.clear(); mapRender(); return; }
+    if (guidance) {
+      const present = [...new Set(map.graph.pages.map(p => p.format))].filter(t => GUIDANCE_TYPES.includes(t));
+      const allActive = map.visibleTypes.size === present.length && present.every(t => map.visibleTypes.has(t));
+      map.visibleTypes = allActive ? new Set() : new Set(present); // toggle guidance-only
+      mapRender();
+      return;
+    }
     if (!chip) return;
     const t = chip.dataset.type;
     if (map.visibleTypes.has(t)) map.visibleTypes.delete(t); else map.visibleTypes.add(t);
