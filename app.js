@@ -1541,6 +1541,26 @@ function mapExtractLinks(content) {
   return mapLinksFromHtml(html);
 }
 
+// Curated "Related content" / "Related guides" links. These live in the links
+// object, not the body, so a prose-only read misses them. They belong to the
+// whole page (the sidebar shows on every part of a guide).
+function mapCuratedLinks(content) {
+  const set = new Set();
+  if (!content) return set;
+  const L = content.links || {};
+  ['ordered_related_items', 'related_guides'].forEach(g => {
+    (L[g] || []).forEach(i => { const bp = i && i.base_path; if (bp) { const k = keyPath(bp); if (k) set.add(k); } });
+  });
+  return set;
+}
+
+// Body links plus curated related links: the full set of pages a page points to.
+function mapAllLinks(content) {
+  const s = mapExtractLinks(content);
+  mapCuratedLinks(content).forEach(k => s.add(k));
+  return s;
+}
+
 /* ----- Map: build + render ----- */
 
 async function mapBuild() {
@@ -1678,7 +1698,7 @@ async function mapSeedBuild() {
       if (depth + 1 > maxHops) break; // fetched the last hop's pages; do not expand further
       const next = [];
       batch.forEach(k => {
-        mapExtractLinks(contentByKey.get(k)).forEach(t => {
+        mapAllLinks(contentByKey.get(k)).forEach(t => {
           if (!t || discovered.has(t)) return;
           if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
           discovered.add(t);
@@ -1743,12 +1763,16 @@ function mapComputeUnits(pages) {
         const slug = pt.slug || ('part-' + (i + 1));
         const key = i === 0 ? canon : keyPath(canon + '/' + slug);
         if (i === 0) alias.set(keyPath(canon + '/' + slug), canon); // /guide/overview -> /guide
+        const links = mapLinksFromHtml(pt.body || '');
+        // The Related content sidebar belongs to the guide as a whole; attach it
+        // to the first part (the guide root) rather than repeating it on all parts.
+        if (i === 0) mapCuratedLinks(d).forEach(k => links.add(k));
         units.set(key, {
           key,
           title: pt.title || p.title,
           format: (d && d.document_type) || p.format,
           welsh: !!(d && d.locale === 'cy'),
-          links: mapLinksFromHtml(pt.body || ''),
+          links,
           guide: canon,          // which guide this part belongs to
           guideTitle: p.title,   // the guide's own title, for the group box label
         });
@@ -1759,7 +1783,7 @@ function mapComputeUnits(pages) {
         title: p.title,
         format: p.format,
         welsh: p.welsh,
-        links: d ? mapExtractLinks(d) : new Set(),
+        links: d ? mapAllLinks(d) : new Set(),
       });
     }
   });
