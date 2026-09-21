@@ -1517,21 +1517,28 @@ async function mapFetchContents(paths, onProgress) {
 }
 
 // Internal GOV.UK links found in a page's body (and parts), as a Set of node keys.
-function mapExtractLinks(content) {
-  if (!content) return new Set();
-  const details = content.details || {};
-  const parts = Array.isArray(details.parts) ? details.parts : [];
-  const html = (details.body || '') + parts.map(p => p.body || '').join(' ');
+// Internal GOV.UK link keys found in a fragment of body HTML.
+function mapLinksFromHtml(html) {
   const set = new Set();
   const re = /<a[^>]*href="([^"]+)"[^>]*>/gi;
   let m;
-  while ((m = re.exec(html)) !== null) {
+  while ((m = re.exec(html || '')) !== null) {
     const ip = toInternalPathOrNull(m[1]);
     if (!ip) continue;
     const k = keyPath(ip);
     if (k) set.add(k);
   }
   return set;
+}
+
+// All internal links across a page (body plus every part). Used for the crawl
+// frontier, where we want the union of everything a fetched page points to.
+function mapExtractLinks(content) {
+  if (!content) return new Set();
+  const details = content.details || {};
+  const parts = Array.isArray(details.parts) ? details.parts : [];
+  const html = (details.body || '') + parts.map(p => p.body || '').join(' ');
+  return mapLinksFromHtml(html);
 }
 
 /* ----- Map: build + render ----- */
@@ -1659,6 +1666,14 @@ async function mapSeedBuild() {
         contentByKey.set(k, d);
         pages.push({ path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '',
                      welsh: !!(d && d.locale === 'cy'), content: d });
+        // A multi-part guide arrives whole (every part is in details.parts), so
+        // mark its root and all its part URLs as covered: they are expanded into
+        // nodes at build time and must not be fetched again as separate pages.
+        if (d && d.base_path && d.details && Array.isArray(d.details.parts) && d.details.parts.length) {
+          const canon = keyPath(d.base_path);
+          discovered.add(canon);
+          d.details.parts.forEach(pt => { if (pt && pt.slug) discovered.add(keyPath(canon + '/' + pt.slug)); });
+        }
       });
       if (depth + 1 > maxHops) break; // fetched the last hop's pages; do not expand further
       const next = [];
@@ -1705,39 +1720,60 @@ async function mapSeedBuild() {
   if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-function mapComputeGraph(pages) {
-  // Canonicalise multi-part guides. Every part URL (/guide/part) resolves in the
-  // content API to the same document (same base_path), so without this a guide
-  // shows as several identical-titled dots. Collapse each part path onto its
-  // canonical base_path, both for the pages we fetched and for links to parts we
-  // did not fetch (using details.parts). Welsh translations have their own
-  // base_path, so they correctly stay separate.
-  const alias = new Map();     // any part/fetched path -> canonical key
-  const canonPage = new Map(); // canonical key -> one representative page
+// Turn fetched pages into graph units. A multi-part guide becomes one unit per
+// part (its own title, URL and body links), because each part is a distinct page
+// a user lands on. The content API returns every part in details.parts, so this
+// needs no extra requests. The first part is served at the guide root; the rest
+// at root/<slug>. Normal pages become one unit, keyed by base_path. Links to a
+// part URL, or to the root, resolve to the matching part node.
+function mapComputeUnits(pages) {
+  const units = new Map();     // key -> {key, title, format, welsh, links:Set}
+  const alias = new Map();     // root/<overview-slug> -> root (part 0)
+  const doneGuides = new Set();
   pages.forEach(p => {
+    const d = p.content;
     const reqKey = keyPath(p.path);
     if (!reqKey) return;
-    const d = p.content;
     const canon = (d && d.base_path) ? keyPath(d.base_path) : reqKey;
-    alias.set(reqKey, canon);
-    if (d && d.details && Array.isArray(d.details.parts)) {
-      d.details.parts.forEach(pt => { if (pt && pt.slug) alias.set(keyPath(canon + '/' + pt.slug), canon); });
-    }
-    // Prefer the representative whose own path is the canonical root.
-    if (!canonPage.has(canon) || reqKey === canon) {
-      canonPage.set(canon, { path: canon, title: p.title, format: p.format, welsh: p.welsh, content: d });
+    const parts = (d && d.details && Array.isArray(d.details.parts)) ? d.details.parts : [];
+    if (parts.length) {
+      if (doneGuides.has(canon)) return; // expand each guide once
+      doneGuides.add(canon);
+      parts.forEach((pt, i) => {
+        const slug = pt.slug || ('part-' + (i + 1));
+        const key = i === 0 ? canon : keyPath(canon + '/' + slug);
+        if (i === 0) alias.set(keyPath(canon + '/' + slug), canon); // /guide/overview -> /guide
+        units.set(key, {
+          key,
+          title: pt.title || p.title,
+          format: (d && d.document_type) || p.format,
+          welsh: !!(d && d.locale === 'cy'),
+          links: mapLinksFromHtml(pt.body || ''),
+        });
+      });
+    } else if (!units.has(canon)) {
+      units.set(canon, {
+        key: canon,
+        title: p.title,
+        format: p.format,
+        welsh: p.welsh,
+        links: d ? mapExtractLinks(d) : new Set(),
+      });
     }
   });
+  return { units, alias };
+}
 
-  const inset = canonPage; // canonical key -> page
-  const canonOf = (t) => alias.get(t) || t;
+function mapComputeGraph(pages) {
+  const { units, alias } = mapComputeUnits(pages);
+  const inset = units;                          // key -> unit (multi-part guides expanded)
+  const canonOf = (t) => alias.get(t) || t;     // resolve /guide/overview to /guide
 
   const linkers = new Map(); // out-of-set target -> Set of in-set sources
   const rawEdges = [];       // {src, tgt} (deduped later)
-  pages.forEach(p => {
-    const src = canonOf(keyPath(p.path));
-    if (!src) return;
-    mapExtractLinks(p.content).forEach(traw => {
+  units.forEach(u => {
+    const src = u.key;
+    u.links.forEach(traw => {
       const t = canonOf(traw);
       if (!t || t === src) return;
       if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
