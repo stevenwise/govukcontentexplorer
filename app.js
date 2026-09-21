@@ -1371,6 +1371,7 @@ const map = {
   stats: null,
   searchTotal: 0,     // org mode: total matching in the search index
   seedMeta: null,     // seed mode: {seedCount, hops, reached}
+  seedKeys: null,     // seed mode: the start-page keys, for the core group
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
   fullscreen: false,
   restoring: false,   // true while rebuilding from the URL
@@ -1566,6 +1567,7 @@ function mapAllLinks(content) {
 async function mapBuild() {
   const types = mapCheckedTypes();
   if (!map.selected || !types.length) return;
+  map.seedKeys = null; // org mode has no start page, so no core group
   const cap = Math.max(10, Math.min(200, parseInt(el('map-cap').value, 10) || 100));
   el('map-cap').value = cap;
   const q = (el('map-q').value || '').trim();
@@ -1615,8 +1617,8 @@ async function mapBuild() {
     el('map-build').disabled = false;
     return;
   }
+  el('map-results').classList.remove('app-hidden'); // visible first so the graph container has a size
   mapRender();
-  el('map-results').classList.remove('app-hidden');
   el('map-build').disabled = false;
   mapUpdateUrl();
   if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1654,6 +1656,7 @@ async function mapSeedBuild() {
   const seeds = mapReadSeeds();
   const bs = el('map-seed-status');
   if (!seeds.length) { bs.textContent = 'Enter at least one GOV.UK URL or path to start from.'; return; }
+  map.seedKeys = new Set(seeds); // the start pages, to highlight and centre their group
   const maxHops = parseInt(el('map-hops').value, 10) === 1 ? 1 : 2;
   const cap = Math.max(10, Math.min(300, parseInt(el('map-seed-cap').value, 10) || 150));
   el('map-seed-cap').value = cap;
@@ -1732,9 +1735,11 @@ async function mapSeedBuild() {
     el('map-seed-build').disabled = false;
     return;
   }
-  mapRender();
+  // Show the results panel before rendering so the graph container has a real
+  // size when the layout fits and centres the view.
   el('map-empty').classList.add('app-hidden');
   el('map-results').classList.remove('app-hidden');
+  mapRender();
   el('map-seed-build').disabled = false;
   mapUpdateUrl();
   if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1838,7 +1843,20 @@ function mapComputeGraph(pages) {
     deg.set(e.tgt, (deg.get(e.tgt) || 0) + 1);
   });
 
-  map.graph = { inset, hubs, edges, indeg, deg, pages: [...inset.values()] };
+  // The "core" group (seed mode): the start page(s) and their whole guide. This
+  // is the tight main group, highlighted and centred so it stands out from the
+  // wider crawl radiating around it.
+  let core = null;
+  if (map.mode === 'seed' && map.seedKeys && map.seedKeys.size) {
+    const seedUnits = new Set();
+    inset.forEach((u, k) => { if (map.seedKeys.has(k) || (u.guide && map.seedKeys.has(u.guide))) seedUnits.add(k); });
+    const seedGuides = new Set();
+    inset.forEach((u, k) => { if (seedUnits.has(k) && u.guide) seedGuides.add(u.guide); });
+    inset.forEach((u, k) => { if (u.guide && seedGuides.has(u.guide)) seedUnits.add(k); }); // all parts of a start guide
+    core = seedUnits;
+  }
+
+  map.graph = { inset, hubs, edges, indeg, deg, core, pages: [...inset.values()] };
   map.visibleTypes = new Set(); // a fresh build shows all content types
   const withinCount = edges.filter(e => inset.has(e.tgt)).length;
   const orphanCount = [...inset.keys()].filter(k => !deg.get(k)).length;
@@ -1893,11 +1911,17 @@ function mapLayout() {
 // panned. mapFcoseReady is irrelevant here.
 function mapApplyView() {
   if (!map.cy) return;
+  map.cy.resize(); // measure the current container before fitting/centring
   const MIN = 0.6, MAX = 1.3;
-  map.cy.fit(undefined, 40);
+  // Frame the core group (start page + what it links to) when there is one, so
+  // the main group sits centred and readable; otherwise frame the whole graph.
+  const coreNodes = map.cy.nodes('[core = 1]');
+  const target = coreNodes.nonempty() ? coreNodes.union(coreNodes.parents()) : map.cy.elements();
+  map.cy.fit(target, 55);
   const z = map.cy.zoom();
-  if (z < MIN) { map.cy.zoom(MIN); map.cy.center(); }
-  else if (z > MAX) { map.cy.zoom(MAX); map.cy.center(); }
+  if (z < MIN) map.cy.zoom(MIN);
+  else if (z > MAX) map.cy.zoom(MAX);
+  map.cy.center(target);
 }
 
 // Single click: zoom to a node and centre it. Double click: open it in Page view.
@@ -1959,15 +1983,18 @@ function mapRender() {
   groupTitle.forEach((title, guide) => {
     els.push({ data: { id: 'grp:' + guide, label: title, kind: 'group' } });
   });
+  const core = g.core || new Set();
   visiblePages.forEach(k => {
     const p = g.inset.get(k);
     const grouped = p.guide && groupTitle.has(p.guide);
-    // Parts inside a guide box always show their label (they are the content of
-    // the box); loose nodes label only when well-linked, and on hover otherwise.
+    const isCore = core.has(k);
+    // Parts inside a guide box, and the start-page core group, always show their
+    // label; loose nodes label only when well-linked, and on hover otherwise.
     const data = { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
-                   color: cm[p.format] || '#1d70b8', size: sizeFor(k),
-                   major: (grouped || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
+                   color: cm[p.format] || '#1d70b8', size: Math.round(sizeFor(k) * (isCore ? 1.25 : 1)),
+                   major: (grouped || isCore || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
     if (grouped) data.parent = 'grp:' + p.guide;
+    if (isCore) data.core = 1;
     els.push({ data });
   });
 
@@ -2001,6 +2028,11 @@ function mapRender() {
         'text-margin-y': 2, 'min-zoomed-font-size': 8, 'text-opacity': 0,
       } },
       { selector: 'node[major = 1]', style: { 'text-opacity': 1 } },
+      // The start-page core group: a dark ring makes it prominent.
+      { selector: 'node[core = 1]', style: {
+        'border-width': 4, 'border-color': '#0b0c0c', 'border-opacity': 0.85,
+        'text-opacity': 1, 'font-weight': 'bold',
+      } },
       { selector: 'node[kind="hub"]', style: {
         'shape': 'round-rectangle', 'background-color': '#f3f2f1',
         'border-width': 2, 'border-style': 'dashed', 'border-color': '#505a5f', 'font-weight': 'bold',
@@ -2100,6 +2132,9 @@ function mapRenderLegend() {
   let html = '';
   if (present.length === 1) {
     html += `<span class="app-legend-item"><span class="app-legend-swatch" style="background:${cm[present[0]] || '#1d70b8'}"></span>${esc(formatLabel(present[0]))}</span>`;
+  }
+  if (map.graph.core && map.graph.core.size) {
+    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--core"></span>From your start page</span>`;
   }
   if (map.graph.hubs.size && el('map-show-hubs').checked) {
     html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside your set)</span>`;
