@@ -103,6 +103,9 @@
     .app-chip--clear { border-color: #d4351c; color: #d4351c; border-radius: 4px; }
     .app-chip--clear:hover { background: #d4351c; color: #fff; }
     .app-chip--more { border-style: dashed; color: #1d70b8; }
+    /* When a --more chip (e.g. Guidance types) is active, keep white text on the
+       blue fill; otherwise --more's blue colour would hide it. */
+    .app-chip--more.app-chip--active { color: #ffffff; }
     /* Count + CSV row, and pager */
     .app-results-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; }
     .app-pager { display: flex; align-items: center; margin-top: 12px; }
