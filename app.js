@@ -1376,6 +1376,9 @@ const map = {
   restoring: false,   // true while rebuilding from the URL
 };
 
+// Distinguishes a single tap (focus) from a double tap (open) on a node.
+const mapTap = { id: null, t: 0, timer: null };
+
 // Register the fcose layout if its scripts loaded; otherwise fall back to cose.
 let mapFcoseReady = false;
 try {
@@ -1775,13 +1778,43 @@ function mapHubLabel(k) {
 }
 
 function mapLayout() {
+  // Spread nodes out generously. fit:false because we set our own readable zoom
+  // afterwards (mapApplyView), so a big graph overflows the frame and is panned
+  // rather than shrunk to a dense dot-cloud.
   if (mapFcoseReady) {
-    return { name: 'fcose', quality: 'default', animate: false, randomize: true, fit: true,
-             padding: 30, nodeSeparation: 130, idealEdgeLength: 80, nodeRepulsion: 6500,
-             packComponents: true, gravity: 0.25, numIter: 2500 };
+    return { name: 'fcose', quality: 'proof', animate: false, randomize: true, fit: false,
+             padding: 40, nodeSeparation: 260, idealEdgeLength: 170, nodeRepulsion: 16000,
+             edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4, packComponents: true, numIter: 3000 };
   }
-  return { name: 'cose', animate: false, fit: true, padding: 30, randomize: true,
-           nodeRepulsion: 16000, idealEdgeLength: 120, componentSpacing: 160, gravity: 0.6 };
+  return { name: 'cose', animate: false, fit: false, padding: 40, randomize: true,
+           nodeRepulsion: 32000, idealEdgeLength: 180, componentSpacing: 220, gravity: 0.35 };
+}
+
+// After a layout, set a readable zoom rather than fitting everything into the
+// frame. Small graphs still fit; large ones stay at a legible node size and are
+// panned. mapFcoseReady is irrelevant here.
+function mapApplyView() {
+  if (!map.cy) return;
+  const MIN = 0.6, MAX = 1.3;
+  map.cy.fit(undefined, 40);
+  const z = map.cy.zoom();
+  if (z < MIN) { map.cy.zoom(MIN); map.cy.center(); }
+  else if (z > MAX) { map.cy.zoom(MAX); map.cy.center(); }
+}
+
+// Single click: zoom to a node and centre it. Double click: open it in Page view.
+function mapFocusNode(n) {
+  map.cy.elements().unselect();
+  n.select();
+  map.cy.animate({ center: { eles: n }, zoom: Math.max(map.cy.zoom(), 1.6) }, { duration: 350 });
+}
+
+function mapOpenNode(n) {
+  const p = n.data('path');
+  showView('page');
+  el('page-url').value = GOVUK + '/' + String(p).replace(/^\/+/, '');
+  loadPage(normalisePath(p));
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function mapRender() {
@@ -1841,6 +1874,7 @@ function mapRender() {
     container: el('map-graph'),
     elements: els,
     wheelSensitivity: 0.2,
+    layout: { name: 'preset' }, // real layout runs below, so we can hook its completion
     style: [
       { selector: 'node', style: {
         'background-color': 'data(color)', 'width': 'data(size)', 'height': 'data(size)',
@@ -1861,8 +1895,12 @@ function mapRender() {
       { selector: 'edge.hl', style: { 'line-color': '#1d70b8', 'target-arrow-color': '#1d70b8', 'opacity': 0.9, 'width': 2 } },
       { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8', 'text-opacity': 1 } },
     ],
-    layout: mapLayout(),
   });
+
+  // Run the real layout, then set a readable zoom (rather than fit-to-frame).
+  const layout = map.cy.layout(mapLayout());
+  layout.one('layoutstop', mapApplyView);
+  layout.run();
 
   // Hover reveals a node's label and lights up its immediate links.
   map.cy.on('mouseover', 'node', (evt) => {
@@ -1874,12 +1912,20 @@ function mapRender() {
   });
   map.cy.on('mouseout', 'node', () => { map.cy.elements('.hl').removeClass('hl'); });
 
+  // Single tap: focus and zoom to the node. Double tap: open it in Page view.
   map.cy.on('tap', 'node', (evt) => {
-    const p = evt.target.data('path');
-    showView('page');
-    el('page-url').value = GOVUK + '/' + String(p).replace(/^\/+/, '');
-    loadPage(normalisePath(p));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    const n = evt.target;
+    const now = Date.now();
+    if (mapTap.id === n.id() && (now - mapTap.t) < 350) {
+      clearTimeout(mapTap.timer);
+      mapTap.id = null;
+      mapOpenNode(n);
+    } else {
+      mapTap.id = n.id();
+      mapTap.t = now;
+      clearTimeout(mapTap.timer);
+      mapTap.timer = setTimeout(() => { mapFocusNode(n); mapTap.id = null; }, 250);
+    }
   });
 
   mapRenderTypeChips(cm);
@@ -2118,7 +2164,12 @@ function setupMap() {
   el('map-show-hubs').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-welsh').addEventListener('change', () => { if (map.graph) mapRender(); });
-  el('map-relayout').addEventListener('click', () => { if (map.cy) map.cy.layout(mapLayout()).run(); });
+  el('map-relayout').addEventListener('click', () => {
+    if (!map.cy) return;
+    const l = map.cy.layout(mapLayout());
+    l.one('layoutstop', mapApplyView);
+    l.run();
+  });
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
 
