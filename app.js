@@ -1929,10 +1929,13 @@ function mapRender() {
   });
   visiblePages.forEach(k => {
     const p = g.inset.get(k);
+    const grouped = p.guide && groupTitle.has(p.guide);
+    // Parts inside a guide box always show their label (they are the content of
+    // the box); loose nodes label only when well-linked, and on hover otherwise.
     const data = { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
                    color: cm[p.format] || '#1d70b8', size: sizeFor(k),
-                   major: (g.indeg.get(k) || 0) >= majorCut ? 1 : 0 };
-    if (p.guide && groupTitle.has(p.guide)) data.parent = 'grp:' + p.guide;
+                   major: (grouped || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
+    if (grouped) data.parent = 'grp:' + p.guide;
     els.push({ data });
   });
 
