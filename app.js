@@ -1706,15 +1706,39 @@ async function mapSeedBuild() {
 }
 
 function mapComputeGraph(pages) {
-  const inset = new Map();
-  pages.forEach(p => { const k = keyPath(p.path); if (k) inset.set(k, p); });
+  // Canonicalise multi-part guides. Every part URL (/guide/part) resolves in the
+  // content API to the same document (same base_path), so without this a guide
+  // shows as several identical-titled dots. Collapse each part path onto its
+  // canonical base_path, both for the pages we fetched and for links to parts we
+  // did not fetch (using details.parts). Welsh translations have their own
+  // base_path, so they correctly stay separate.
+  const alias = new Map();     // any part/fetched path -> canonical key
+  const canonPage = new Map(); // canonical key -> one representative page
+  pages.forEach(p => {
+    const reqKey = keyPath(p.path);
+    if (!reqKey) return;
+    const d = p.content;
+    const canon = (d && d.base_path) ? keyPath(d.base_path) : reqKey;
+    alias.set(reqKey, canon);
+    if (d && d.details && Array.isArray(d.details.parts)) {
+      d.details.parts.forEach(pt => { if (pt && pt.slug) alias.set(keyPath(canon + '/' + pt.slug), canon); });
+    }
+    // Prefer the representative whose own path is the canonical root.
+    if (!canonPage.has(canon) || reqKey === canon) {
+      canonPage.set(canon, { path: canon, title: p.title, format: p.format, welsh: p.welsh, content: d });
+    }
+  });
+
+  const inset = canonPage; // canonical key -> page
+  const canonOf = (t) => alias.get(t) || t;
 
   const linkers = new Map(); // out-of-set target -> Set of in-set sources
   const rawEdges = [];       // {src, tgt} (deduped later)
   pages.forEach(p => {
-    const src = keyPath(p.path);
+    const src = canonOf(keyPath(p.path));
     if (!src) return;
-    mapExtractLinks(p.content).forEach(t => {
+    mapExtractLinks(p.content).forEach(traw => {
+      const t = canonOf(traw);
       if (!t || t === src) return;
       if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
       if (inset.has(t)) {
@@ -1744,7 +1768,7 @@ function mapComputeGraph(pages) {
     deg.set(e.tgt, (deg.get(e.tgt) || 0) + 1);
   });
 
-  map.graph = { inset, hubs, edges, indeg, deg, pages };
+  map.graph = { inset, hubs, edges, indeg, deg, pages: [...inset.values()] };
   map.visibleTypes = new Set(); // a fresh build shows all content types
   const withinCount = edges.filter(e => inset.has(e.tgt)).length;
   const orphanCount = [...inset.keys()].filter(k => !deg.get(k)).length;
