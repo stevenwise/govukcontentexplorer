@@ -2254,7 +2254,10 @@ function mapClearTypes() {
 function mapExportName(ext) {
   const base = map.mode === 'seed' ? 'govuk-service-map'
              : 'govuk-map-' + (map.selected ? map.selected.slug : 'org');
-  return `${base}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+  const d = new Date();
+  const p = n => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${base}-${stamp}.${ext}`;
 }
 
 function mapDownloadBlob(blob, filename) {
