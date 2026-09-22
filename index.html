@@ -117,15 +117,16 @@
     /* Map view */
     #map-graph { height: 640px; border: 1px solid #b1b4b6; background: #fff; }
     .app-map-controls { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
-    .app-map-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
-    .app-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: #0b0c0c; }
-    /* Dual keyline: the dark inner border separates pale dots on a white chip,
-       the white outer ring separates blue dots on a selected (blue) chip. */
+    /* Dual keyline on the filter-chip colour dots: the dark inner border separates
+       pale dots on a white chip, the white outer ring separates blue dots on a
+       selected (blue) chip. */
     .app-legend-swatch { width: 14px; height: 14px; border-radius: 50%; display: inline-block; flex: 0 0 auto; box-sizing: border-box; border: 1px solid rgba(11,12,12,0.25); box-shadow: 0 0 0 1px rgba(255,255,255,0.6); }
-    .app-legend-swatch--hub { border-radius: 3px; background: #f3f2f1; border: 2px dashed #505a5f; box-sizing: border-box; }
-    .app-legend-swatch--core { background: #1d70b8; border: 3px solid #0b0c0c; box-sizing: border-box; }
-    .app-legend-line { display: inline-block; width: 22px; height: 0; border-top: 2px solid #c8ccce; flex: 0 0 auto; }
-    .app-legend-line--related { border-top: 2px dashed #8f7fc9; }
+    /* Combined key: a marker beside a short description, one row per element. */
+    .app-map-key { margin: 0 0 8px; }
+    .app-map-key-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 7px; }
+    .app-map-key-marker { flex: 0 0 30px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+    .app-map-key-text { font-size: 0.875rem; color: #505a5f; line-height: 1.35; }
+    .app-map-key-text strong { color: #0b0c0c; }
     #map-progress { margin-top: 10px; }
     /* One aligned row of view/layout/export controls; two matching menu-selects. */
     .app-map-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
@@ -428,7 +429,6 @@
             <!-- Content-type filter chips -->
             <div id="map-type-chips" class="app-chips"></div>
 
-            <div id="map-legend" class="app-map-legend"></div>
             <div id="map-graph"></div>
             <div id="map-caption" class="app-map-caption govuk-!-margin-top-2"></div>
           </div>

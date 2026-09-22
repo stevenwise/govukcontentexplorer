@@ -2017,7 +2017,20 @@ function mapRender() {
   });
 
   mapRenderTypeChips(cm);
-  mapRenderLegend();
+  // Build the key context from what is actually drawn, so each key row only shows
+  // when its element is present. One context drives the screen key and the export.
+  const presentTypes = [...new Set(map.graph.pages.map(p => p.format))].filter(Boolean);
+  const keyCtx = {
+    hasStartBox: [...groupTitle.keys()].some(guide => coreGuides.has(guide)),
+    hasOtherBox: [...groupTitle.keys()].some(guide => !coreGuides.has(guide)),
+    hasHubs: liveHubs.size > 0,
+    hasRelated: shownEdges.some(e => e.kind === 'related'),
+    singleType: presentTypes.length === 1 ? (formatLabel(presentTypes[0]) || 'Unknown') : null,
+    pageColour: presentTypes.length === 1 ? (cm[presentTypes[0]] || '#1d70b8') : '#1d70b8',
+    colourItems: presentTypes.map(f => ({ color: cm[f] || '#1d70b8', label: formatLabel(f) || 'Unknown' })),
+  };
+  map.keyCtx = keyCtx;
+  mapRenderKey(keyCtx);
   mapRenderCards();
   el('map-results-heading').textContent = 'Service map';
 }
@@ -2048,29 +2061,6 @@ function mapRenderTypeChips(cm) {
   box.innerHTML = html;
 }
 
-function mapRenderLegend() {
-  // The content-type chips carry the colour key when there is more than one type,
-  // so the legend only repeats a single type, plus the shared-destination marker.
-  const present = [...new Set(map.graph.pages.map(p => p.format))].filter(Boolean);
-  const cm = mapFormatColours();
-  let html = '';
-  if (present.length === 1) {
-    html += `<span class="app-legend-item"><span class="app-legend-swatch" style="background:${cm[present[0]] || '#1d70b8'}"></span>${esc(formatLabel(present[0]))}</span>`;
-  }
-  if (map.graph.core && map.graph.core.size) {
-    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--core"></span>From your start page</span>`;
-  }
-  if (map.graph.hubs.size && el('map-show-hubs').checked) {
-    html += `<span class="app-legend-item"><span class="app-legend-swatch app-legend-swatch--hub"></span>Shared destination (outside your set)</span>`;
-  }
-  // Only explain the two edge styles when curated related links are present.
-  if (map.graph.edges.some(e => e.kind === 'related')) {
-    html += `<span class="app-legend-item"><span class="app-legend-line"></span>Body link</span>`;
-    html += `<span class="app-legend-item"><span class="app-legend-line app-legend-line--related"></span>Related content link</span>`;
-  }
-  el('map-legend').innerHTML = html;
-}
-
 /* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
 
 function mapExportName(ext) {
@@ -2093,83 +2083,144 @@ function mapDownloadBlob(blob, filename) {
 }
 
 // The key shown on exports, mirroring the on-screen legend.
-function mapLegendItems() {
-  const g = map.graph;
-  const items = [];
-  const cm = mapFormatColours();
-  const counts = {};
-  g.pages.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
-  Object.entries(counts).sort((a, b) => b[1] - a[1])
-    .forEach(([f]) => items.push({ kind: 'circle', color: cm[f] || '#1d70b8', label: formatLabel(f) || 'Unknown' }));
-  if (g.core && g.core.size) items.push({ kind: 'ring', color: '#1d70b8', label: 'From your start page' });
-  if (g.hubs.size && el('map-show-hubs').checked) items.push({ kind: 'square', color: '#f3f2f1', label: 'Shared destination (outside your set)' });
-  items.push({ kind: 'line', color: '#c8ccce', label: 'Body link' });
-  if (g.edges.some(e => e.kind === 'related')) items.push({ kind: 'line-dashed', color: '#8f7fc9', label: 'Related content link' });
-  return items;
+// A key marker drawn in export (SVG) coordinates, left edge at x, centred on cy.
+function mapKeyMarkerExport(kind, color, x, cy) {
+  const sw = 13, r = sw / 2;
+  switch (kind) {
+    case 'circle': return `<circle cx="${x + r}" cy="${cy}" r="${r}" fill="${color || '#1d70b8'}" stroke="#0b0c0c" stroke-opacity="0.25" stroke-width="1"/>`;
+    case 'blue-box': return `<rect x="${x}" y="${cy - 6}" width="24" height="12" rx="3" fill="#1d70b8" fill-opacity="0.1" stroke="#1d70b8" stroke-width="2"/>`;
+    case 'grey-box': return `<rect x="${x}" y="${cy - 6}" width="24" height="12" rx="3" fill="#f3f2f1" fill-opacity="0.55" stroke="#8f9296" stroke-width="1" stroke-dasharray="3,2"/>`;
+    case 'square': return `<rect x="${x}" y="${cy - r}" width="${sw}" height="${sw}" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`;
+    case 'line': return `<line x1="${x}" y1="${cy}" x2="${x + 24}" y2="${cy}" stroke="#b1b4b6" stroke-width="2"/>`;
+    case 'line-dashed': return `<line x1="${x}" y1="${cy}" x2="${x + 24}" y2="${cy}" stroke="#8f7fc9" stroke-width="2" stroke-dasharray="4,3"/>`;
+    default: return '';
+  }
 }
 
-// Lay the key out as SVG, wrapping to the given width. Returns markup + height.
-function mapLegendSvg(items, width) {
-  const pad = 16, rowH = 24, sw = 13, gap = 8, itemGap = 24, charW = 6.7;
-  let x = pad, y = pad + 8, body = '';
-  items.forEach(it => {
-    const labelW = it.label.length * charW;
-    const itemW = sw + gap + labelW;
-    if (x + itemW > width - pad && x > pad) { x = pad; y += rowH; }
-    const cy = y - 4;
-    if (it.kind === 'circle') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-opacity="0.25" stroke-width="1"/>`;
-    else if (it.kind === 'ring') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-width="2.5"/>`;
-    else if (it.kind === 'square') body += `<rect x="${x}" y="${cy - sw / 2}" width="${sw}" height="${sw}" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`;
-    else if (it.kind === 'line') body += `<line x1="${x}" y1="${cy}" x2="${x + sw + 4}" y2="${cy}" stroke="${it.color}" stroke-width="2"/>`;
-    else if (it.kind === 'line-dashed') body += `<line x1="${x}" y1="${cy}" x2="${x + sw + 4}" y2="${cy}" stroke="${it.color}" stroke-width="2" stroke-dasharray="4,3"/>`;
-    const tx = x + sw + gap;
-    body += `<text x="${tx}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#0b0c0c">${esc(it.label)}</text>`;
-    x = tx + labelW + itemGap;
+// The combined key as SVG: the content-type colours, then a marker-and-description
+// row per map element. Same content as the on-screen key. Returns markup + height.
+function mapKeySvg(ctx, width) {
+  const font = 'Arial, Helvetica, sans-serif', pad = 16, charW = 6.3;
+  let y = pad + 8, body = '';
+
+  // Content-type colours (the on-screen filter chips carry these; a static image
+  // needs them spelled out). Wraps across the width.
+  if (ctx.colourItems && ctx.colourItems.length) {
+    body += `<text x="${pad}" y="${y}" font-family="${font}" font-size="12" font-weight="bold" fill="#505a5f">Content types</text>`;
+    y += 20;
+    const sw = 12, gap = 7, itemGap = 20;
+    let x = pad;
+    ctx.colourItems.forEach(it => {
+      const labelW = it.label.length * charW;
+      if (x + sw + gap + labelW > width - pad && x > pad) { x = pad; y += 22; }
+      const cyc = y - 4;
+      body += `<circle cx="${x + sw / 2}" cy="${cyc}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-opacity="0.25" stroke-width="1"/>`;
+      body += `<text x="${x + sw + gap}" y="${y}" font-family="${font}" font-size="12" fill="#0b0c0c">${esc(it.label)}</text>`;
+      x += sw + gap + labelW + itemGap;
+    });
+    y += 30;
+  }
+
+  // One row per element: marker, bold term, then the wrapped description.
+  const markerW = 34, lineH = 17, textX = pad + markerW;
+  MAP_KEY.filter(r => r.when(ctx)).forEach(r => {
+    body += mapKeyMarkerExport(r.marker, ctx.pageColour, pad, y - 4);
+    const term = r.term + ':';
+    const termW = term.length * 7.0; // bold runs a little wider
+    body += `<text x="${textX}" y="${y}" font-family="${font}" font-size="12" font-weight="bold" fill="#0b0c0c">${esc(term)}</text>`;
+    const descFull = r.desc + (r.marker === 'circle' && ctx.singleType ? ' All pages here are ' + ctx.singleType + '.' : '');
+    const firstMax = Math.max(10, Math.floor((width - (textX + termW + 4) - pad) / charW));
+    const contMax = Math.max(20, Math.floor((width - textX - pad) / charW));
+    const words = descFull.split(/\s+/);
+    const lines = []; let cur = '', max = firstMax;
+    words.forEach(w => { if (cur && (cur + ' ' + w).length > max) { lines.push(cur); cur = w; max = contMax; } else cur = cur ? cur + ' ' + w : w; });
+    if (cur) lines.push(cur);
+    lines.forEach((ln, i) => {
+      const lx = i === 0 ? textX + termW + 4 : textX;
+      body += `<text x="${lx}" y="${y}" font-family="${font}" font-size="12" fill="#505a5f">${esc(ln)}</text>`;
+      if (i < lines.length - 1) y += lineH;
+    });
+    y += lineH + 6;
   });
+
   return { body, height: y + pad };
 }
 
-// The map's caption, as scannable bullets. One source drives both the on-screen
-// list and the key/caption in exports.
-const MAP_CAPTION = [
-  { heading: 'Reading the map', items: [
-    'Each circle is a page in your set. Its colour shows the content type and its size shows how many other pages link to it.',
-    'Squares are shared destinations that sit outside your set.',
-    'A box groups the parts of one guide. The solid blue box is your start guide, the service you are tracing. Dashed grey boxes are other guides.',
-    'A solid line is a link in the page body. A dashed line is a related content link.',
-  ] },
-  { heading: 'Using the map', screenOnly: true, items: [
-    'Single-click a node to zoom to it.',
-    'Double-click a node to open it in Page view.',
-    'Hover a node to highlight its links.',
-    'Drag a node, or a guide box by its label, to move it. Your layout is saved automatically.',
-    'Drag the background to pan, and scroll to zoom.',
-  ] },
+// The map key: one source of truth, driving both the on-screen "Reading the map"
+// section and the key in exports. Each row pairs a marker with a short
+// description, and only shows when its element is actually on the map.
+const MAP_KEY = [
+  { marker: 'circle', term: 'Page',
+    desc: 'one page in your set. Its colour is the content type; its size shows how many pages link to it.',
+    when: () => true },
+  { marker: 'blue-box', term: 'Start guide',
+    desc: 'the service you are tracing, from your start page.',
+    when: c => c.hasStartBox },
+  { marker: 'grey-box', term: 'Other guide',
+    desc: 'the parts of another multi-part guide, grouped together.',
+    when: c => c.hasOtherBox },
+  { marker: 'square', term: 'Shared destination',
+    desc: 'a page outside your set that two or more of your pages link to.',
+    when: c => c.hasHubs },
+  { marker: 'line', term: 'Body link',
+    desc: 'a link in the page’s text.',
+    when: () => true },
+  { marker: 'line-dashed', term: 'Related content link',
+    desc: 'a curated “Related content” link.',
+    when: c => c.hasRelated },
 ];
 
-// Render the caption as a bulleted list on screen.
-function mapRenderCaptionHtml() {
+// Interaction tips, shown on screen only (an export is a static image).
+const MAP_USING = [
+  'Single-click a node to zoom to it.',
+  'Double-click a node to open it in Page view.',
+  'Hover a node to highlight its links.',
+  'Drag a node, or a guide box by its label, to move it. Your layout is saved automatically.',
+  'Drag the background to pan, and scroll to zoom.',
+];
+
+// A small inline-SVG marker for a key row, matching how the element is drawn.
+function mapKeyMarker(kind, color) {
+  const s = (inner) => `<svg width="28" height="16" viewBox="0 0 28 16" aria-hidden="true" focusable="false" style="display:block">${inner}</svg>`;
+  switch (kind) {
+    case 'circle':
+      return s(`<circle cx="14" cy="8" r="6" fill="${color || '#1d70b8'}" stroke="#0b0c0c" stroke-opacity="0.25" stroke-width="1"/>`);
+    case 'blue-box':
+      return s(`<rect x="2" y="2" width="24" height="12" rx="3" fill="#1d70b8" fill-opacity="0.1" stroke="#1d70b8" stroke-width="2"/>`);
+    case 'grey-box':
+      return s(`<rect x="2.5" y="2.5" width="23" height="11" rx="3" fill="#f3f2f1" fill-opacity="0.55" stroke="#8f9296" stroke-width="1" stroke-dasharray="3,2"/>`);
+    case 'square':
+      return s(`<rect x="8" y="2" width="12" height="12" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`);
+    case 'line':
+      return s(`<line x1="2" y1="8" x2="26" y2="8" stroke="#b1b4b6" stroke-width="2"/>`);
+    case 'line-dashed':
+      return s(`<line x1="2" y1="8" x2="26" y2="8" stroke="#8f7fc9" stroke-width="2" stroke-dasharray="4,3"/>`);
+    default:
+      return '';
+  }
+}
+
+// Render the combined "Reading the map" key (marker + description) plus the
+// screen-only "Using the map" tips, into the caption area below the graph.
+function mapRenderKey(ctx) {
   const box = el('map-caption');
   if (!box) return;
-  box.innerHTML = MAP_CAPTION.map(sec =>
-    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">${esc(sec.heading)}</h3>` +
+  const singleNote = ctx.singleType ? ` All pages here are ${esc(ctx.singleType)}.` : '';
+  const rows = MAP_KEY.filter(r => r.when(ctx)).map(r => {
+    const desc = r.marker === 'circle' ? esc(r.desc) + singleNote : esc(r.desc);
+    return `<div class="app-map-key-row"><span class="app-map-key-marker">${mapKeyMarker(r.marker, ctx.pageColour)}</span>` +
+      `<span class="app-map-key-text"><strong>${esc(r.term)}:</strong> ${desc}</span></div>`;
+  }).join('');
+  box.innerHTML =
+    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Reading the map</h3>` +
+    `<div class="app-map-key">${rows}</div>` +
+    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Using the map</h3>` +
     `<ul class="govuk-list govuk-list--bullet govuk-body-s app-muted govuk-!-margin-bottom-2">` +
-    sec.items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>'
-  ).join('');
+    MAP_USING.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>';
 }
 
-// Greedy word-wrap into lines of at most maxChars characters.
-function mapWrapText(text, maxChars) {
-  const out = [];
-  (text || '').split(/\s+/).filter(Boolean).forEach(w => {
-    if (out.length && (out[out.length - 1] + ' ' + w).length <= maxChars) out[out.length - 1] += ' ' + w;
-    else out.push(w);
-  });
-  return out;
-}
-
-// Build the whole export as one SVG: the graph, then a key, then the caption
-// (wrapped to a readable line length), so the image explains itself.
+// Build the whole export as one SVG: the graph, then the combined key (the same
+// "Reading the map" content as on screen, wrapped to width), so it explains itself.
 function mapBuildSvg() {
   const graphSvg = map.cy.svg({ scale: 1, full: true, bg: '#ffffff' });
   const wm = graphSvg.match(/width="([\d.]+)/), hm = graphSvg.match(/height="([\d.]+)/);
@@ -2178,37 +2229,15 @@ function mapBuildSvg() {
   const OW = Math.max(W, 560);
   const GAP = 48; // breathing room between the graph and the key
   const keyTop = H + GAP;
-  const { body, height: LH } = mapLegendSvg(mapLegendItems(), OW);
-  const keyBottom = keyTop + 14 + LH;
-
-  // Caption under the key: the same bullets as on screen, so it scans. Text wraps
-  // to a comfortable line length; bullet continuation lines hang-indent.
   const font = 'Arial, Helvetica, sans-serif';
-  const capMax = Math.max(60, Math.floor((OW - 52) / 6.3)); // full width; bullets keep it scannable
-  const lineH = 18;
-  let cy = keyBottom + 30;
-  const parts = [];
-  // Exports are static, so drop screen-only sections (the interaction guidance).
-  MAP_CAPTION.filter(sec => !sec.screenOnly).forEach((sec, si) => {
-    if (si) cy += 10; // gap between sections
-    parts.push(`<text x="16" y="${cy}" font-family="${font}" font-size="13" font-weight="bold" fill="#0b0c0c">${esc(sec.heading)}</text>`);
-    cy += 22;
-    sec.items.forEach(item => {
-      mapWrapText(item, capMax).forEach((ln, i) => {
-        if (i === 0) parts.push(`<text x="18" y="${cy}" font-family="${font}" font-size="12" fill="#505a5f">&#8226;</text>`);
-        parts.push(`<text x="34" y="${cy}" font-family="${font}" font-size="12" fill="#505a5f">${esc(ln)}</text>`);
-        cy += lineH;
-      });
-      cy += 3; // small gap between bullets
-    });
-  });
-  const TH = cy + 12;
+  const ctx = map.keyCtx || { colourItems: [], pageColour: '#1d70b8' };
+  const { body, height: keyH } = mapKeySvg(ctx, OW);
+  const TH = keyTop + 14 + keyH + 4;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${TH}" viewBox="0 0 ${OW} ${TH}">` +
     `<rect width="${OW}" height="${TH}" fill="#ffffff"/>` +
     graphSvg +
-    `<g transform="translate(0,${keyTop})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="18" font-family="${font}" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
+    `<g transform="translate(0,${keyTop})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="18" font-family="${font}" font-size="11" font-weight="bold" fill="#505a5f">Reading the map</text>` +
     `<g transform="translate(0,14)">${body}</g></g>` +
-    parts.join('') +
     `</svg>`;
 }
 
@@ -2624,8 +2653,7 @@ async function mapRestoreFromUrl() {
 }
 
 function setupMap() {
-  mapRenderCaptionHtml();
-  mapRestoreFromUrl(); // deep link: ?mseeds=... builds the map on load
+  mapRestoreFromUrl(); // deep link: ?mseeds=... builds the map on load (renders the key)
 
   el('map-seed-build').addEventListener('click', mapSeedBuild);
 
