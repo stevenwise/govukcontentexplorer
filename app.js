@@ -1896,11 +1896,12 @@ function mapLayout() {
   if (mapFcoseReady) {
     return { name: 'fcose', quality: 'proof', animate: false, randomize: true, fit: false,
              padding: 40, nodeSeparation: 240, idealEdgeLength: 170, nodeRepulsion: 17000,
-             edgeElasticity: 0.06, gravity: 0.06, gravityRange: 4,
-             // A strong, short-range compound gravity keeps each box tight even
-             // when its pages have strong links out (otherwise a sparse box, e.g. a
-             // 4-page guide, balloons as its pages are flung to the box corners).
-             gravityCompound: 25, gravityRangeCompound: 1,
+             edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4,
+             // fcose positions everything; mapCompactBoxes then packs each box's
+             // parts into a tight uniform grid, so box tightness no longer depends
+             // on whether the parts cross-link. Moderate compound gravity just keeps
+             // the boxes from drifting apart.
+             gravityCompound: 3, gravityRangeCompound: 1.5,
              packComponents: true, numIter: 3000 };
   }
   return { name: 'cose', animate: false, fit: false, padding: 40, randomize: true,
@@ -1910,9 +1911,32 @@ function mapLayout() {
 // After a layout, set a readable zoom rather than fitting everything into the
 // frame. Small graphs still fit; large ones stay at a legible node size and are
 // panned. mapFcoseReady is irrelevant here.
+// After the force layout, pack each guide box's parts into a compact uniform grid
+// centred on where the layout put them. This makes every box equally tight,
+// regardless of whether its parts cross-link (which the force layout can't do).
+function mapCompactBoxes() {
+  if (!map.cy) return;
+  const GAP = 92;
+  map.cy.nodes(':parent').forEach(parent => {
+    const kids = parent.children();
+    const n = kids.length;
+    if (n < 2) return;
+    let cx = 0, cy = 0;
+    kids.forEach(k => { const p = k.position(); cx += p.x; cy += p.y; });
+    cx /= n; cy /= n;
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    kids.forEach((k, i) => {
+      const col = i % cols, row = Math.floor(i / cols);
+      k.position({ x: cx + (col - (cols - 1) / 2) * GAP, y: cy + (row - (rows - 1) / 2) * GAP });
+    });
+  });
+}
+
 function mapApplyView() {
   if (!map.cy) return;
   map.cy.resize(); // measure the current container before fitting/centring
+  mapCompactBoxes();
   const MIN = 0.6, MAX = 1.3;
   // Frame the core group (start page + what it links to) when there is one, so
   // the main group sits centred and readable; otherwise frame the whole graph.
