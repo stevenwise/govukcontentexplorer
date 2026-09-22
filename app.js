@@ -2235,22 +2235,92 @@ function mapDownloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-// Vector export: the whole graph as SVG, so it imports into Figma/Miro editable.
+// The key shown on exports, mirroring the on-screen legend.
+function mapLegendItems() {
+  const g = map.graph;
+  const items = [];
+  const cm = mapFormatColours();
+  const counts = {};
+  g.pages.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
+  Object.entries(counts).sort((a, b) => b[1] - a[1])
+    .forEach(([f]) => items.push({ kind: 'circle', color: cm[f] || '#1d70b8', label: formatLabel(f) || 'Unknown' }));
+  if (g.core && g.core.size) items.push({ kind: 'ring', color: '#1d70b8', label: 'From your start page' });
+  if (g.hubs.size && el('map-show-hubs').checked) items.push({ kind: 'square', color: '#f3f2f1', label: 'Shared destination (outside your set)' });
+  items.push({ kind: 'line', color: '#c8ccce', label: 'Body link' });
+  if (g.edges.some(e => e.kind === 'related')) items.push({ kind: 'line-dashed', color: '#8f7fc9', label: 'Related content link' });
+  return items;
+}
+
+// Lay the key out as SVG, wrapping to the given width. Returns markup + height.
+function mapLegendSvg(items, width) {
+  const pad = 16, rowH = 24, sw = 13, gap = 8, itemGap = 24, charW = 6.7;
+  let x = pad, y = pad + 8, body = '';
+  items.forEach(it => {
+    const labelW = it.label.length * charW;
+    const itemW = sw + gap + labelW;
+    if (x + itemW > width - pad && x > pad) { x = pad; y += rowH; }
+    const cy = y - 4;
+    if (it.kind === 'circle') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}"/>`;
+    else if (it.kind === 'ring') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-width="2.5"/>`;
+    else if (it.kind === 'square') body += `<rect x="${x}" y="${cy - sw / 2}" width="${sw}" height="${sw}" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`;
+    else if (it.kind === 'line') body += `<line x1="${x}" y1="${cy}" x2="${x + sw + 4}" y2="${cy}" stroke="${it.color}" stroke-width="2"/>`;
+    else if (it.kind === 'line-dashed') body += `<line x1="${x}" y1="${cy}" x2="${x + sw + 4}" y2="${cy}" stroke="${it.color}" stroke-width="2" stroke-dasharray="4,3"/>`;
+    const tx = x + sw + gap;
+    body += `<text x="${tx}" y="${y}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#0b0c0c">${esc(it.label)}</text>`;
+    x = tx + labelW + itemGap;
+  });
+  return { body, height: y + pad };
+}
+
+// Build the whole export as one SVG: the graph with a key strip beneath it.
+function mapBuildSvg() {
+  const graphSvg = map.cy.svg({ scale: 1, full: true, bg: '#ffffff' });
+  const wm = graphSvg.match(/width="([\d.]+)/), hm = graphSvg.match(/height="([\d.]+)/);
+  const W = wm ? Math.ceil(parseFloat(wm[1])) : 1000;
+  const H = hm ? Math.ceil(parseFloat(hm[1])) : 800;
+  const OW = Math.max(W, 520);
+  const { body, height: LH } = mapLegendSvg(mapLegendItems(), OW);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${H + LH}" viewBox="0 0 ${OW} ${H + LH}">` +
+    `<rect width="${OW}" height="${H + LH}" fill="#ffffff"/>` +
+    graphSvg +
+    `<g transform="translate(0,${H})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="${18}" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
+    `<g transform="translate(0,14)">${body}</g></g></svg>`;
+}
+
+// Vector export: the whole graph plus key as SVG, editable in Figma/Miro.
 function mapExportSvg() {
   if (!map.cy) return;
   if (!mapSvgReady || typeof map.cy.svg !== 'function') {
     alert('SVG export is unavailable because its library did not load. Use PNG instead, or reload the page.');
     return;
   }
-  const svg = map.cy.svg({ scale: 1, full: true, bg: '#ffffff' });
-  mapDownloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), mapExportName('svg'));
+  mapDownloadBlob(new Blob([mapBuildSvg()], { type: 'image/svg+xml;charset=utf-8' }), mapExportName('svg'));
 }
 
-// Raster export: the whole graph as a high-resolution PNG.
+// Raster export: rasterise the same graph-plus-key SVG to a high-res PNG. Falls
+// back to a plain graph PNG (no key) if the SVG library is unavailable.
 function mapExportPng() {
   if (!map.cy) return;
-  const blob = map.cy.png({ output: 'blob', full: true, scale: 2, bg: '#ffffff' });
-  mapDownloadBlob(blob, mapExportName('png'));
+  if (!(mapSvgReady && typeof map.cy.svg === 'function')) {
+    mapDownloadBlob(map.cy.png({ output: 'blob', full: true, scale: 2, bg: '#ffffff' }), mapExportName('png'));
+    return;
+  }
+  const svg = mapBuildSvg();
+  const img = new Image();
+  img.onload = () => {
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob(b => mapDownloadBlob(b, mapExportName('png')), 'image/png');
+  };
+  img.onerror = () => mapDownloadBlob(map.cy.png({ output: 'blob', full: true, scale: 2, bg: '#ffffff' }), mapExportName('png'));
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
 // Data export: one row per page, with its connections and their content types.
