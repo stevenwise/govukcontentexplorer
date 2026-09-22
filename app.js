@@ -2078,14 +2078,17 @@ function mapRender() {
       { selector: 'node.hl', style: { 'text-opacity': 1, 'font-weight': 'bold', 'z-index': 999 } },
       { selector: 'edge.hl', style: { 'line-color': '#1d70b8', 'target-arrow-color': '#1d70b8', 'opacity': 0.9, 'width': 2 } },
       { selector: 'node:selected', style: { 'border-width': 3, 'border-style': 'solid', 'border-color': '#1d70b8', 'text-opacity': 1 } },
-      // Guide group box (compound parent): a faint labelled container.
+      // Guide group box (compound parent): a faint labelled container. It receives
+      // events so you can grab the box or its label and drag the whole group.
       { selector: ':parent', style: {
         'shape': 'round-rectangle', 'background-color': '#f3f2f1', 'background-opacity': 0.55,
         'border-width': 1, 'border-style': 'dashed', 'border-color': '#8f9296', 'padding': 16,
         'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': 4,
         'font-size': '12px', 'font-weight': 'bold', 'color': '#505a5f', 'text-opacity': 1,
-        'text-wrap': 'wrap', 'text-max-width': '160px', 'events': 'no',
+        'text-wrap': 'wrap', 'text-max-width': '160px',
       } },
+      // Selecting a box would draw a distracting border; keep it looking the same.
+      { selector: ':parent:selected', style: { 'border-width': 1, 'border-color': '#8f9296', 'border-style': 'dashed' } },
     ],
   });
 
