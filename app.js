@@ -2308,7 +2308,7 @@ const MAP_CAPTION = [
     'A dashed box groups the parts of one guide.',
     'A solid line is a link in the page body. A dashed line is a related content link.',
   ] },
-  { heading: 'Using the map', items: [
+  { heading: 'Using the map', screenOnly: true, items: [
     'Single-click a node to zoom to it.',
     'Double-click a node to open it in Page view.',
     'Hover a node to highlight its links.',
@@ -2358,7 +2358,8 @@ function mapBuildSvg() {
   const lineH = 18;
   let cy = keyBottom + 30;
   const parts = [];
-  MAP_CAPTION.forEach((sec, si) => {
+  // Exports are static, so drop screen-only sections (the interaction guidance).
+  MAP_CAPTION.filter(sec => !sec.screenOnly).forEach((sec, si) => {
     if (si) cy += 10; // gap between sections
     parts.push(`<text x="16" y="${cy}" font-family="${font}" font-size="13" font-weight="bold" fill="#0b0c0c">${esc(sec.heading)}</text>`);
     cy += 22;
