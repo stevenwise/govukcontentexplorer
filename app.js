@@ -2432,13 +2432,12 @@ function mapExportEdgesCsv() {
   mapDownloadBlob(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' }), mapExportName('connections.csv'));
 }
 
-// Dispatch from the export dropdown.
-function mapExport() {
-  const fmt = el('map-export-format').value;
+// Dispatch from the export menu.
+function mapExport(fmt) {
   if (fmt === 'svg') mapExportSvg();
   else if (fmt === 'png') mapExportPng();
+  else if (fmt === 'csv-pages') mapExportCsv();
   else if (fmt === 'csv-connections') mapExportEdgesCsv();
-  else mapExportCsv();
 }
 
 /* ----- Map: save and restore the arranged layout -----
@@ -2755,11 +2754,16 @@ function setupMap() {
     e.target.value = '';
   });
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
-  el('map-export-go').addEventListener('click', mapExport);
+  // Export menu: acts on selection, then resets to its "Export" label (same
+  // pattern as the Layout menu).
+  el('map-export-format').addEventListener('change', (e) => {
+    const v = e.target.value;
+    e.target.selectedIndex = 0;
+    if (v) mapExport(v);
+  });
   if (!mapSvgReady) { // drop the SVG option if its library failed to load
     const opt = el('map-export-format').querySelector('option[value="svg"]');
     if (opt) opt.remove();
-    el('map-export-format').value = 'png';
   }
 
   // Content-type filter chips.
