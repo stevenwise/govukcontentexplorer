@@ -14,6 +14,8 @@
   <script src="https://cdn.jsdelivr.net/npm/layout-base@2.0.1/layout-base.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/cose-base@2.2.0/cose-base.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"></script>
+  <!-- SVG export (for importing the map into Figma, Miro, etc.) -->
+  <script src="https://cdn.jsdelivr.net/npm/cytoscape-svg@0.4.0/cytoscape-svg.js"></script>
   <style>
     /* We deliberately do NOT load GDS Transport: it is licensed for real
        government services only, and this is not one. Arial fallback is correct. */
@@ -462,6 +464,8 @@
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fullscreen">Full screen</button>
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-relayout">Re-run layout</button>
                 <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fit">Fit to screen</button>
+                <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-export-svg">Download SVG</button>
+                <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-export-png">Download PNG</button>
               </div>
             </div>
 

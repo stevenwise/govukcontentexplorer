@@ -1389,6 +1389,15 @@ try {
   }
 } catch (e) { mapFcoseReady = false; }
 
+// Register the SVG exporter if its script loaded.
+let mapSvgReady = false;
+try {
+  if (typeof cytoscape !== 'undefined' && typeof cytoscapeSvg !== 'undefined') {
+    cytoscape.use(cytoscapeSvg);
+    mapSvgReady = true;
+  }
+} catch (e) { mapSvgReady = false; }
+
 const MAP_DEFAULT_TYPES = ['detailed_guide', 'guidance'];
 const MAP_HUB_MIN = 2;      // an outward destination is a node only if 2+ in-set pages link to it
 const MAP_CONCURRENCY = 5;  // parallel Content API requests; gentle on GOV.UK
@@ -2194,6 +2203,43 @@ function mapClearTypes() {
   mapUpdateBuildEnabled();
 }
 
+/* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
+
+function mapExportName(ext) {
+  const base = map.mode === 'seed' ? 'govuk-service-map'
+             : 'govuk-map-' + (map.selected ? map.selected.slug : 'org');
+  return `${base}-${new Date().toISOString().slice(0, 10)}.${ext}`;
+}
+
+function mapDownloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Vector export: the whole graph as SVG, so it imports into Figma/Miro editable.
+function mapExportSvg() {
+  if (!map.cy) return;
+  if (!mapSvgReady || typeof map.cy.svg !== 'function') {
+    alert('SVG export is unavailable because its library did not load. Use PNG instead, or reload the page.');
+    return;
+  }
+  const svg = map.cy.svg({ scale: 1, full: true, bg: '#ffffff' });
+  mapDownloadBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), mapExportName('svg'));
+}
+
+// Raster export: the whole graph as a high-resolution PNG.
+function mapExportPng() {
+  if (!map.cy) return;
+  const blob = map.cy.png({ output: 'blob', full: true, scale: 2, bg: '#ffffff' });
+  mapDownloadBlob(blob, mapExportName('png'));
+}
+
 // Expand the graph panel to fill the viewport (and back).
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
@@ -2383,6 +2429,9 @@ function setupMap() {
   });
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
+  el('map-export-svg').addEventListener('click', mapExportSvg);
+  el('map-export-png').addEventListener('click', mapExportPng);
+  if (!mapSvgReady) el('map-export-svg').classList.add('app-hidden'); // hide if the SVG lib failed to load
 
   // Content-type filter chips.
   el('map-type-chips').addEventListener('click', (e) => {
