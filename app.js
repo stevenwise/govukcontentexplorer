@@ -1896,11 +1896,11 @@ function mapLayout() {
   if (mapFcoseReady) {
     return { name: 'fcose', quality: 'proof', animate: false, randomize: true, fit: false,
              padding: 40, nodeSeparation: 240, idealEdgeLength: 170, nodeRepulsion: 17000,
-             edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4,
-             // A stronger, short-range compound gravity keeps sparse boxes tight
-             // (they were ballooning); modest repulsion loosens dense clusters a
-             // little without re-inflating the boxes.
-             gravityCompound: 3.5, gravityRangeCompound: 1.6,
+             edgeElasticity: 0.06, gravity: 0.06, gravityRange: 4,
+             // A strong, short-range compound gravity keeps each box tight even
+             // when its pages have strong links out (otherwise a sparse box, e.g. a
+             // 4-page guide, balloons as its pages are flung to the box corners).
+             gravityCompound: 25, gravityRangeCompound: 1,
              packComponents: true, numIter: 3000 };
   }
   return { name: 'cose', animate: false, fit: false, padding: 40, randomize: true,
