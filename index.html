@@ -116,7 +116,6 @@
     #estate-cards .govuk-table__cell { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
     /* Map view */
     #map-graph { height: 640px; border: 1px solid #b1b4b6; background: #fff; }
-    #map-checkboxes { max-height: 260px; overflow-y: auto; }
     .app-map-controls { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
     .app-map-legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 12px; }
     .app-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8125rem; color: #0b0c0c; }
@@ -340,37 +339,8 @@
         <h1 class="govuk-heading-xl">Map view</h1>
         <p class="govuk-body">See how a group of GOV.UK pages link to each other. It reads the links written into each page and draws them as a map, so you can see how the pages connect and which shared pages they send users to.</p>
 
-        <!-- Mode switch: a whole organisation, or a service traced from its start pages -->
-        <div class="govuk-form-group">
-          <fieldset class="govuk-fieldset">
-            <legend class="govuk-fieldset__legend govuk-fieldset__legend--s">Which pages do you want to map?</legend>
-            <div class="govuk-radios govuk-radios--small govuk-radios--inline" id="map-mode">
-              <div class="govuk-radios__item">
-                <input class="govuk-radios__input" id="map-mode-org" name="map-mode" type="radio" value="org" checked>
-                <label class="govuk-label govuk-radios__label" for="map-mode-org">An organisation's content types</label>
-              </div>
-              <div class="govuk-radios__item">
-                <input class="govuk-radios__input" id="map-mode-seed" name="map-mode" type="radio" value="seed">
-                <label class="govuk-label govuk-radios__label" for="map-mode-seed">A service, traced from its start page</label>
-              </div>
-            </div>
-          </fieldset>
-        </div>
-
-        <!-- Mode A: organisation picker (searchable) -->
-        <div id="map-org-mode">
-          <div class="govuk-form-group">
-            <label class="govuk-label" for="map-org-search">Organisation</label>
-            <div id="map-org-hint" class="govuk-hint">Type to search by title or slug.</div>
-            <input class="govuk-input" id="map-org-search" type="text" autocomplete="off"
-                   aria-describedby="map-org-hint" aria-expanded="false" aria-controls="map-org-list" role="combobox">
-            <div id="map-org-list" role="listbox" class="app-combo-list app-hidden"></div>
-          </div>
-          <button class="govuk-button" data-module="govuk-button" id="map-load-types" type="button" disabled>Choose content types</button>
-        </div>
-
-        <!-- Mode B: seed and crawl from one or more start pages (a service) -->
-        <div id="map-seed-mode" class="app-hidden">
+        <!-- Trace a service from one or more start pages -->
+        <div id="map-seed-mode">
           <div class="govuk-form-group">
             <label class="govuk-label" for="map-seeds">Start page(s)</label>
             <div class="govuk-hint" id="map-seeds-hint">A GOV.UK URL or path, one per line. The map follows the links out from these pages to trace the service. A good start page is the one a user actually begins on, for example <code>/make-court-claim-for-money</code>.</div>
@@ -395,48 +365,15 @@
           </div>
         </div>
 
-        <div id="map-status" class="govuk-body app-spinner" aria-live="polite"></div>
-
         <!-- Empty state: one worked example -->
         <div id="map-empty">
           <h2 class="govuk-heading-m govuk-!-margin-top-6">Try an example</h2>
           <ul class="govuk-list">
             <li class="govuk-!-margin-bottom-4">
-              <a class="govuk-link govuk-!-font-weight-bold" href="?map=hm-courts-and-tribunals-service&amp;mtypes=detailed_guide" data-map-org="hm-courts-and-tribunals-service" data-map-types="detailed_guide">How do HMCTS guides connect?</a>
-              <br><span class="govuk-body-s app-muted">Most don't link to each other. They funnel users toward a handful of shared tools, like Find a court and Get help with court fees.</span>
-            </li>
-            <li class="govuk-!-margin-bottom-4">
               <a class="govuk-link govuk-!-font-weight-bold" href="?mseeds=/make-court-claim-for-money&amp;mhops=1" data-map-seed="/make-court-claim-for-money" data-map-hops="1">Map the Civil Money Claims service.</a>
               <br><span class="govuk-body-s app-muted">Traced from its start page, following links across GDS and HMCTS: the claim forms, the fee help, the enforcement steps.</span>
             </li>
           </ul>
-        </div>
-
-        <!-- Content type picker + build controls -->
-        <div id="map-setup" class="app-panel app-hidden">
-          <h3 class="govuk-heading-m">Content types</h3>
-          <p class="govuk-body-s app-muted">Body links are richest in HTML guidance. Form and publication PDFs have no readable body, so they map as isolated dots.</p>
-          <div class="govuk-button-group">
-            <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="map-select-guidance">Select guidance types</button>
-            <button class="govuk-button govuk-button--secondary" data-module="govuk-button" type="button" id="map-clear-types">Clear all</button>
-          </div>
-          <div id="map-checkboxes" class="govuk-checkboxes govuk-checkboxes--small"></div>
-
-          <div class="govuk-form-group govuk-!-margin-top-4">
-            <label class="govuk-label" for="map-q">Filter by title or path (optional)</label>
-            <input class="govuk-input" id="map-q" type="text" autocomplete="off">
-          </div>
-          <div class="govuk-form-group">
-            <label class="govuk-label" for="map-cap">Maximum pages to map</label>
-            <div class="govuk-hint" id="map-cap-hint">Each page is one live request to GOV.UK. Higher is slower and busier for the API. Up to 200.</div>
-            <input class="govuk-input govuk-input--width-5" id="map-cap" type="number" min="10" max="200" value="100" aria-describedby="map-cap-hint">
-          </div>
-
-          <button class="govuk-button" data-module="govuk-button" id="map-build" type="button" disabled>Build map</button>
-          <div id="map-build-status" class="govuk-body app-spinner" aria-live="polite"></div>
-          <div id="map-progress" class="app-hidden">
-            <div class="app-typebar-track"><div class="app-typebar-fill" id="map-progress-fill" style="width:0%;background:#1d70b8"></div></div>
-          </div>
         </div>
 
         <!-- Results -->

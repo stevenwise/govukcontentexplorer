@@ -1361,17 +1361,11 @@ function setupEstate() {
  */
 
 const map = {
-  mode: 'org',        // 'org' (filter an organisation) | 'seed' (trace a service)
-  selected: null,     // {slug, title}
-  filtered: [],       // current org-combo matches
-  activeIndex: -1,    // combobox keyboard highlight
-  formats: [],        // [{slug, documents}] for the chosen org
   cy: null,           // Cytoscape instance
   graph: null,        // computed {inset, hubs, edges, indeg, deg, pages}
   stats: null,
-  searchTotal: 0,     // org mode: total matching in the search index
-  seedMeta: null,     // seed mode: {seedCount, hops, reached}
-  seedKeys: null,     // seed mode: the start-page keys, for the core group
+  seedMeta: null,     // {seedCount, hops, reached}
+  seedKeys: null,     // the start-page keys, for the core group
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
   presetPositions: null, // saved manual arrangement (id -> {x,y}), or null for auto-layout
   fullscreen: false,
@@ -1399,7 +1393,6 @@ try {
   }
 } catch (e) { mapSvgReady = false; }
 
-const MAP_DEFAULT_TYPES = ['detailed_guide', 'guidance'];
 const MAP_HUB_MIN = 2;      // an outward destination is a node only if 2+ in-set pages link to it
 const MAP_CONCURRENCY = 5;  // parallel Content API requests; gentle on GOV.UK
 
@@ -1408,103 +1401,6 @@ const MAP_LINK_BLOCK = [/^\/help(\/|$)/, /^\/cookies/, /^\/contact(\/|$)/, /^\/s
 
 // Normalise a path to a stable node key: drop query/anchor and any trailing slash.
 const keyPath = (p) => (p || '').split('#')[0].split('?')[0].replace(/\/+$/, '');
-
-/* ----- Map: organisation combobox (mirrors Estate's, with map- ids) ----- */
-
-function mapRenderOrgOptions(query) {
-  const list = el('map-org-list');
-  const q = (query || '').trim().toLowerCase();
-  const matches = q
-    ? estate.orgs.filter(o => o.title.toLowerCase().includes(q) || o.slug.toLowerCase().includes(q))
-    : estate.orgs;
-  const totalMatches = matches.length;
-  map.filtered = matches.slice(0, ORG_LIST_CAP);
-  map.activeIndex = -1;
-
-  if (!map.filtered.length) {
-    list.innerHTML = '<div class="app-combo-option app-muted">No matching organisation</div>';
-  } else {
-    let html = map.filtered.map((o, i) => {
-      const showSlug = o.title !== o.slug;
-      return `<button type="button" class="app-combo-option" role="option" data-i="${i}">
-        ${esc(o.title)}${showSlug ? ' <span class="app-muted">' + esc(o.slug) + '</span>' : ''}</button>`;
-    }).join('');
-    if (totalMatches > map.filtered.length) {
-      const more = totalMatches - map.filtered.length;
-      html += `<div class="app-combo-more app-muted">Showing first ${map.filtered.length} of ${totalMatches.toLocaleString('en-GB')}. Keep typing to narrow (${more.toLocaleString('en-GB')} more).</div>`;
-    }
-    list.innerHTML = html;
-  }
-  list.classList.remove('app-hidden');
-  el('map-org-search').setAttribute('aria-expanded', 'true');
-}
-
-function mapSelectOrg(o) {
-  map.selected = o;
-  el('map-org-search').value = o.title;
-  el('map-org-list').classList.add('app-hidden');
-  el('map-org-search').setAttribute('aria-expanded', 'false');
-  el('map-load-types').disabled = false;
-  if (!map.restoring) {
-    el('map-setup').classList.add('app-hidden');
-    el('map-results').classList.add('app-hidden');
-    el('map-status').textContent = '';
-  }
-}
-
-function mapMoveActive(delta) {
-  const n = map.filtered.length;
-  if (!n) return;
-  map.activeIndex = (map.activeIndex + delta + n) % n;
-  [...el('map-org-list').querySelectorAll('.app-combo-option')].forEach((b, i) =>
-    b.classList.toggle('app-active', i === map.activeIndex));
-}
-
-/* ----- Map: content-type picker ----- */
-
-async function mapLoadTypes() {
-  if (!map.selected) return;
-  const status = el('map-status');
-  status.textContent = 'Fetching content types for ' + map.selected.slug + ' …';
-  try {
-    const url = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(map.selected.slug) +
-                '&count=0&aggregate_format=100';
-    const r = await fetch(url);
-    if (!r.ok) { status.textContent = 'GOV.UK returned ' + r.status + '.'; return; }
-    const data = await r.json();
-    status.textContent = '';
-    const opts = ((data.aggregates || {}).format || {}).options || [];
-    map.formats = opts.map(o => ({ slug: o.value.slug, documents: o.documents }))
-                      .sort((a, b) => b.documents - a.documents);
-    mapRenderTypeCheckboxes();
-    el('map-empty').classList.add('app-hidden');
-    el('map-setup').classList.remove('app-hidden');
-  } catch (e) {
-    status.textContent = 'Could not reach the search API: ' + e.message;
-  }
-}
-
-function mapRenderTypeCheckboxes() {
-  const box = el('map-checkboxes');
-  const anyDefault = map.formats.some(f => MAP_DEFAULT_TYPES.includes(f.slug));
-  box.innerHTML = map.formats.map(f => `
-    <div class="govuk-checkboxes__item">
-      <input class="govuk-checkboxes__input" id="mcb-${esc(f.slug)}" type="checkbox" value="${esc(f.slug)}" ${anyDefault && MAP_DEFAULT_TYPES.includes(f.slug) ? 'checked' : ''}>
-      <label class="govuk-label govuk-checkboxes__label" for="mcb-${esc(f.slug)}">
-        ${esc(formatLabel(f.slug))} <span class="app-muted">(${f.documents.toLocaleString('en-GB')})</span>
-      </label>
-    </div>`).join('');
-  box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', mapUpdateBuildEnabled));
-  mapUpdateBuildEnabled();
-}
-
-function mapCheckedTypes() {
-  return [...el('map-checkboxes').querySelectorAll('input:checked')].map(c => c.value);
-}
-
-function mapUpdateBuildEnabled() {
-  el('map-build').disabled = mapCheckedTypes().length === 0;
-}
 
 /* ----- Map: fetch content with limited concurrency ----- */
 
@@ -1572,80 +1468,7 @@ function mapAllLinks(content) {
   return s;
 }
 
-/* ----- Map: build + render ----- */
-
-async function mapBuild() {
-  const types = mapCheckedTypes();
-  if (!map.selected || !types.length) return;
-  map.seedKeys = null; // org mode has no start page, so no core group
-  const cap = Math.max(10, Math.min(200, parseInt(el('map-cap').value, 10) || 100));
-  el('map-cap').value = cap;
-  const q = (el('map-q').value || '').trim();
-
-  const bs = el('map-build-status');
-  el('map-build').disabled = true;
-  el('map-results').classList.add('app-hidden');
-
-  // 1. Get the filtered page list (one search request, capped).
-  bs.textContent = 'Finding pages…';
-  const base = GOVUK + '/api/search.json?filter_organisations=' + encodeURIComponent(map.selected.slug) +
-    types.map(t => '&filter_format=' + encodeURIComponent(t)).join('') +
-    '&fields=title&fields=link&fields=format&fields=locale' +
-    (q ? '&q=' + encodeURIComponent(q) : '');
-  let list = [];
-  try {
-    const r = await fetch(base + '&count=' + cap + '&start=0');
-    if (!r.ok) { bs.textContent = 'GOV.UK returned ' + r.status + '.'; el('map-build').disabled = false; return; }
-    const data = await r.json();
-    map.searchTotal = data.total || 0;
-    list = (data.results || [])
-      .map(x => ({ path: x.link || '', title: x.title || '(untitled)', format: x.format || '', welsh: x.locale === 'cy' }))
-      .filter(x => x.path);
-  } catch (e) {
-    bs.textContent = 'Could not reach the search API: ' + e.message; el('map-build').disabled = false; return;
-  }
-  if (!list.length) { bs.textContent = 'No pages found for this selection.'; el('map-build').disabled = false; return; }
-
-  // 2. Fetch each page's content to read its body links.
-  el('map-progress').classList.remove('app-hidden');
-  el('map-progress-fill').style.width = '0%';
-  let done = 0;
-  const onProgress = () => {
-    done++;
-    el('map-progress-fill').style.width = Math.round((done / list.length) * 100) + '%';
-    bs.textContent = `Reading pages ${done.toLocaleString('en-GB')} of ${list.length.toLocaleString('en-GB')}…`;
-  };
-  const contents = await mapFetchContents(list.map(x => x.path), onProgress);
-  list.forEach((x, i) => { x.content = contents[i]; });
-  el('map-progress').classList.add('app-hidden');
-  bs.textContent = '';
-
-  // 3. Build the graph and draw it.
-  mapComputeGraph(list);
-  if (typeof cytoscape === 'undefined') {
-    bs.textContent = 'The graph library failed to load, so the map cannot be drawn. Check the network and reload.';
-    el('map-build').disabled = false;
-    return;
-  }
-  el('map-results').classList.remove('app-hidden'); // visible first so the graph container has a size
-  mapUseSaved(mapLoadLocal()); // restore a saved arrangement for this map, if any
-  mapRender();
-  el('map-build').disabled = false;
-  mapUpdateUrl();
-  if (!map.restoring) el('map-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 /* ----- Map: seed-and-crawl mode (trace a service from its start pages) ----- */
-
-function mapSetMode(mode) {
-  map.mode = mode === 'seed' ? 'seed' : 'org';
-  el('map-org-mode').classList.toggle('app-hidden', map.mode !== 'org');
-  el('map-seed-mode').classList.toggle('app-hidden', map.mode !== 'seed');
-  // A mode switch invalidates the org flow's type panel; hide it so the two
-  // modes never show stale controls from each other.
-  if (map.mode === 'seed') el('map-setup').classList.add('app-hidden');
-  if (!map.restoring) mapUpdateUrl();
-}
 
 // Parse the seed textarea into normalised, leading-slash node keys.
 function mapReadSeeds() {
@@ -1663,7 +1486,6 @@ function mapReadSeeds() {
 // "in set" nodes; links from them to pages we did not fetch become the outward
 // hub squares, exactly as in organisation mode.
 async function mapSeedBuild() {
-  if (map.mode !== 'seed') return;
   const seeds = mapReadSeeds();
   const bs = el('map-seed-status');
   if (!seeds.length) { bs.textContent = 'Enter at least one GOV.UK URL or path to start from.'; return; }
@@ -1872,7 +1694,7 @@ function mapComputeGraph(pages) {
   // is the tight main group, highlighted and centred so it stands out from the
   // wider crawl radiating around it.
   let core = null;
-  if (map.mode === 'seed' && map.seedKeys && map.seedKeys.size) {
+  if (map.seedKeys && map.seedKeys.size) {
     const seedUnits = new Set();
     inset.forEach((u, k) => { if (map.seedKeys.has(k) || (u.guide && map.seedKeys.has(u.guide))) seedUnits.add(k); });
     const seedGuides = new Set();
@@ -1893,7 +1715,6 @@ function mapComputeGraph(pages) {
     withinCount,
     orphanCount,
     welshCount,
-    searchTotal: map.searchTotal,
   };
 }
 
@@ -2182,12 +2003,7 @@ function mapRender() {
   mapRenderTypeChips(cm);
   mapRenderLegend();
   mapRenderCards();
-  if (map.mode === 'seed') {
-    el('map-results-heading').textContent = 'Service map';
-  } else {
-    const orgName = map.selected.title === map.selected.slug ? map.selected.slug : map.selected.title;
-    el('map-results-heading').textContent = 'Map of ' + orgName;
-  }
+  el('map-results-heading').textContent = 'Service map';
 }
 
 // Content-type filter chips over the graph. Empty selection shows all; picking
@@ -2239,21 +2055,10 @@ function mapRenderLegend() {
   el('map-legend').innerHTML = html;
 }
 
-// Org mode: mirror Estate view's quick guidance-type selection.
-function mapSetGuidanceTypes() {
-  el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = GUIDANCE_TYPES.includes(cb.value); });
-  mapUpdateBuildEnabled();
-}
-function mapClearTypes() {
-  el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
-  mapUpdateBuildEnabled();
-}
-
 /* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
 
 function mapExportName(ext) {
-  const base = map.mode === 'seed' ? 'govuk-service-map'
-             : 'govuk-map-' + (map.selected ? map.selected.slug : 'org');
+  const base = 'govuk-service-map';
   const d = new Date();
   const p = n => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -2527,11 +2332,8 @@ function mapExport(fmt) {
 const MAP_LS_PREFIX = 'govuk-map-layout:';
 
 function mapStateKey() {
-  if (map.mode === 'seed') {
-    const seeds = map.seedKeys ? [...map.seedKeys].sort().join(',') : '';
-    return 'seed|' + seeds + '|' + (el('map-hops') ? el('map-hops').value : '');
-  }
-  return 'org|' + (map.selected ? map.selected.slug : '') + '|' + mapCheckedTypes().sort().join(',');
+  const seeds = map.seedKeys ? [...map.seedKeys].sort().join(',') : '';
+  return 'seed|' + seeds + '|' + (el('map-hops') ? el('map-hops').value : '');
 }
 
 function mapCaptureToggles() {
@@ -2651,14 +2453,9 @@ function mapRenderCards() {
         ${sub ? '<div class="govuk-body-s app-muted">' + sub + '</div>' : ''}
       </div>
     </div>`;
-  let firstSub;
-  if (map.mode === 'seed' && map.seedMeta) {
-    firstSub = `from ${map.seedMeta.seedCount} start page${map.seedMeta.seedCount === 1 ? '' : 's'}, ${map.seedMeta.hops} hop${map.seedMeta.hops === 1 ? '' : 's'}`;
-  } else {
-    firstSub = s.searchTotal > s.pageCount
-      ? `first ${s.pageCount.toLocaleString('en-GB')} of ${s.searchTotal.toLocaleString('en-GB')} matching`
-      : 'all matching pages';
-  }
+  const firstSub = map.seedMeta
+    ? `from ${map.seedMeta.seedCount} start page${map.seedMeta.seedCount === 1 ? '' : 's'}, ${map.seedMeta.hops} hop${map.seedMeta.hops === 1 ? '' : 's'}`
+    : '';
   el('map-cards').innerHTML =
     card(s.pageCount.toLocaleString('en-GB'), 'Pages mapped', firstSub) +
     card(s.hubCount.toLocaleString('en-GB'), 'Shared destinations', 'linked from 2+ of your pages') +
@@ -2672,22 +2469,11 @@ function mapRenderCards() {
 function mapUpdateUrl() {
   if (map.restoring) return;
   const p = new URLSearchParams();
-  if (map.mode === 'seed') {
-    const seeds = mapReadSeeds();
-    if (seeds.length) p.set('mseeds', seeds.join('|')); // paths never contain a pipe
-    const hops = parseInt(el('map-hops').value, 10);
-    if (hops === 1) p.set('mhops', '1');
-    const cap = parseInt(el('map-seed-cap').value, 10);
-    if (cap && cap !== 150) p.set('mscap', String(cap));
-  } else {
-    if (map.selected) p.set('map', map.selected.slug);
-    const types = mapCheckedTypes();
-    if (types.length) p.set('mtypes', types.join(','));
-    const q = (el('map-q').value || '').trim();
-    if (q) p.set('mq', q);
-    const cap = parseInt(el('map-cap').value, 10);
-    if (cap && cap !== 100) p.set('mcap', String(cap));
-  }
+  const seeds = mapReadSeeds();
+  if (seeds.length) p.set('mseeds', seeds.join('|')); // paths never contain a pipe
+  if (parseInt(el('map-hops').value, 10) === 2) p.set('mhops', '2');
+  const cap = parseInt(el('map-seed-cap').value, 10);
+  if (cap && cap !== 150) p.set('mscap', String(cap));
   const qs = p.toString();
   history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
@@ -2695,31 +2481,14 @@ function mapUpdateUrl() {
 async function mapRestoreFromUrl() {
   const p = new URLSearchParams(location.search);
   const seeds = p.get('mseeds');
-  const org = p.get('map');
-  if (!seeds && !org) return;
+  if (!seeds) return;
   map.restoring = true;
   try {
     showView('map');
-    if (seeds) {
-      el('map-mode-seed').checked = true;
-      mapSetMode('seed');
-      el('map-seeds').value = seeds.split('|').join('\n');
-      if (p.get('mhops') === '1') el('map-hops').value = '1';
-      if (p.get('mscap')) el('map-seed-cap').value = p.get('mscap');
-      await mapSeedBuild();
-    } else {
-      const found = estate.orgs.find(o => o.slug === org) || { slug: org, title: org };
-      mapSelectOrg(found);
-      await mapLoadTypes();
-      const types = (p.get('mtypes') || '').split(',').map(s => s.trim()).filter(Boolean);
-      if (types.length) {
-        el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
-        if (p.get('mq')) el('map-q').value = p.get('mq');
-        if (p.get('mcap')) el('map-cap').value = p.get('mcap');
-        mapUpdateBuildEnabled();
-        await mapBuild();
-      }
-    }
+    el('map-seeds').value = seeds.split('|').join('\n');
+    if (p.get('mhops') === '2') el('map-hops').value = '2';
+    if (p.get('mscap')) el('map-seed-cap').value = p.get('mscap');
+    await mapSeedBuild();
   } finally {
     map.restoring = false;
     mapUpdateUrl();
@@ -2727,87 +2496,28 @@ async function mapRestoreFromUrl() {
 }
 
 function setupMap() {
-  const search = el('map-org-search');
   mapRenderCaptionHtml();
+  mapRestoreFromUrl(); // deep link: ?mseeds=... builds the map on load
 
-  ensureOrgs().then(() => {
-    if (estate.orgsSource === 'aggregate-fallback') {
-      el('map-org-hint').textContent = 'Type to search. (Org titles unavailable, showing slugs only.)';
-    } else if (estate.orgsSource === 'failed') {
-      el('map-org-hint').textContent = 'Could not load the organisation list.';
-    } else {
-      el('map-org-hint').textContent = `Type to search by title or slug. ${estate.orgs.length.toLocaleString('en-GB')} organisations.`;
-    }
-    mapRestoreFromUrl();
-  });
-
-  search.addEventListener('input', () => { map.selected = null; el('map-load-types').disabled = true; mapRenderOrgOptions(search.value); });
-  search.addEventListener('focus', () => mapRenderOrgOptions(search.value));
-  search.addEventListener('keydown', (e) => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); mapMoveActive(1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); mapMoveActive(-1); }
-    else if (e.key === 'Enter') {
-      if (map.activeIndex >= 0 && map.filtered[map.activeIndex]) { e.preventDefault(); mapSelectOrg(map.filtered[map.activeIndex]); }
-      else if (map.selected) mapLoadTypes();
-    } else if (e.key === 'Escape') { el('map-org-list').classList.add('app-hidden'); }
-  });
-
-  el('map-org-list').addEventListener('click', (e) => {
-    const btn = e.target.closest('.app-combo-option[data-i]');
-    if (btn) mapSelectOrg(map.filtered[+btn.dataset.i]);
-  });
-
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('#map-org-search') && !e.target.closest('#map-org-list')) {
-      el('map-org-list').classList.add('app-hidden');
-    }
-  });
-
-  el('map-load-types').addEventListener('click', mapLoadTypes);
-  el('map-build').addEventListener('click', mapBuild);
-  el('map-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !el('map-build').disabled) mapBuild(); });
-
-  // Mode switch (organisation vs service seed-and-crawl)
-  el('map-mode').addEventListener('change', (e) => {
-    if (e.target.name === 'map-mode') mapSetMode(e.target.value);
-  });
   el('map-seed-build').addEventListener('click', mapSeedBuild);
 
-  // Empty-state examples: one per mode. Reuse the restore path so a single click
-  // sets everything up and builds.
+  // Empty-state example: one click sets the start page and builds.
   el('map-empty').addEventListener('click', (e) => {
     const seedLink = e.target.closest('[data-map-seed]');
-    const orgLink = e.target.closest('[data-map-org]');
-    if (!seedLink && !orgLink) return;
+    if (!seedLink) return;
     e.preventDefault();
     map.restoring = true;
     (async () => {
       try {
-        if (seedLink) {
-          el('map-mode-seed').checked = true;
-          mapSetMode('seed');
-          el('map-seeds').value = seedLink.dataset.mapSeed.split('|').join('\n');
-          if (seedLink.dataset.mapHops === '1') el('map-hops').value = '1';
-          await mapSeedBuild();
-        } else {
-          const slug = orgLink.dataset.mapOrg;
-          mapSelectOrg(estate.orgs.find(o => o.slug === slug) || { slug, title: slug });
-          await mapLoadTypes();
-          const types = (orgLink.dataset.mapTypes || '').split(',').map(s => s.trim()).filter(Boolean);
-          el('map-checkboxes').querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = types.includes(cb.value); });
-          mapUpdateBuildEnabled();
-          await mapBuild();
-        }
+        el('map-seeds').value = seedLink.dataset.mapSeed.split('|').join('\n');
+        el('map-hops').value = seedLink.dataset.mapHops === '2' ? '2' : '1';
+        await mapSeedBuild();
       } finally {
         map.restoring = false;
         mapUpdateUrl();
       }
     })();
   });
-
-  // Org mode: quick guidance-type selection (mirrors Estate view).
-  el('map-select-guidance').addEventListener('click', mapSetGuidanceTypes);
-  el('map-clear-types').addEventListener('click', mapClearTypes);
 
   // Toggles and filters re-render the same graph (no re-fetch).
   el('map-show-hubs').addEventListener('change', mapRerender);
