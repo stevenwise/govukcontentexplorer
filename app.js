@@ -2299,21 +2299,46 @@ function mapLegendSvg(items, width) {
   return { body, height: y + pad };
 }
 
-// Build the whole export as one SVG: the graph with a key strip beneath it.
+// Greedy word-wrap into lines of at most maxChars characters.
+function mapWrapText(text, maxChars) {
+  const out = [];
+  (text || '').split(/\s+/).filter(Boolean).forEach(w => {
+    if (out.length && (out[out.length - 1] + ' ' + w).length <= maxChars) out[out.length - 1] += ' ' + w;
+    else out.push(w);
+  });
+  return out;
+}
+
+// Build the whole export as one SVG: the graph, then a key, then the caption
+// (wrapped to a readable line length), so the image explains itself.
 function mapBuildSvg() {
   const graphSvg = map.cy.svg({ scale: 1, full: true, bg: '#ffffff' });
   const wm = graphSvg.match(/width="([\d.]+)/), hm = graphSvg.match(/height="([\d.]+)/);
   const W = wm ? Math.ceil(parseFloat(wm[1])) : 1000;
   const H = hm ? Math.ceil(parseFloat(hm[1])) : 800;
-  const OW = Math.max(W, 520);
+  const OW = Math.max(W, 560);
   const GAP = 48; // breathing room between the graph and the key
+  const keyTop = H + GAP;
   const { body, height: LH } = mapLegendSvg(mapLegendItems(), OW);
-  const TH = H + GAP + LH;
+  const keyBottom = keyTop + 14 + LH;
+
+  // Caption under the key, wrapped so no line exceeds a readable length.
+  const caption = (el('map-caption') && el('map-caption').textContent.trim()) || '';
+  const capMax = Math.max(48, Math.min(75, Math.floor((OW - 32) / 6.6))); // <= ~75 chars/line for readability
+  const capLines = caption ? mapWrapText(caption, capMax) : [];
+  const capTop = keyBottom + 28;
+  const lineH = 17;
+  const capBlock = capLines.map((ln, i) =>
+    `<text x="16" y="${capTop + i * lineH}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#505a5f">${esc(ln)}</text>`).join('');
+
+  const TH = (capLines.length ? capTop + (capLines.length - 1) * lineH : keyBottom) + 20;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${TH}" viewBox="0 0 ${OW} ${TH}">` +
     `<rect width="${OW}" height="${TH}" fill="#ffffff"/>` +
     graphSvg +
-    `<g transform="translate(0,${H + GAP})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="${18}" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
-    `<g transform="translate(0,14)">${body}</g></g></svg>`;
+    `<g transform="translate(0,${keyTop})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="18" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
+    `<g transform="translate(0,14)">${body}</g></g>` +
+    capBlock +
+    `</svg>`;
 }
 
 // Vector export: the whole graph plus key as SVG, editable in Figma/Miro.
