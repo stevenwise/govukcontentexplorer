@@ -1945,6 +1945,7 @@ function mapRender() {
   const showHubs = el('map-show-hubs').checked;
   const showOrphans = el('map-show-orphans').checked;
   const showWelsh = el('map-show-welsh').checked;
+  const showAllLabels = el('map-show-labels').checked;
   const typeFilter = map.visibleTypes;
   const cm = mapFormatColours();
   const indegVals = [...g.indeg.values()];
@@ -1992,7 +1993,7 @@ function mapRender() {
     // label; loose nodes label only when well-linked, and on hover otherwise.
     const data = { id: k, label: midTruncate(p.title, 44), path: k, kind: 'page',
                    color: cm[p.format] || '#1d70b8', size: Math.round(sizeFor(k) * (isCore ? 1.25 : 1)),
-                   major: (grouped || isCore || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
+                   major: (showAllLabels || grouped || isCore || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
     if (grouped) data.parent = 'grp:' + p.guide;
     if (isCore) data.core = 1;
     els.push({ data });
@@ -2343,6 +2344,7 @@ function setupMap() {
   el('map-show-hubs').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-welsh').addEventListener('change', () => { if (map.graph) mapRender(); });
+  el('map-show-labels').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-relayout').addEventListener('click', () => {
     if (!map.cy) return;
     const l = map.cy.layout(mapLayout());
