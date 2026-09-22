@@ -2215,7 +2215,7 @@ function mapRenderKey(ctx) {
     `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Reading the map</h3>` +
     `<div class="app-map-key">${rows}</div>` +
     `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Using the map</h3>` +
-    `<ul class="govuk-list govuk-list--bullet govuk-body-s app-muted govuk-!-margin-bottom-2">` +
+    `<ul class="govuk-list govuk-list--bullet app-map-using app-muted govuk-!-margin-bottom-2">` +
     MAP_USING.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>';
 }
 
