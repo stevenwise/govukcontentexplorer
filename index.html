@@ -126,6 +126,7 @@
     .app-map-zoom-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; padding: 0; font-size: 20px; line-height: 1; color: #0b0c0c; background: #fff; border: 1px solid #b1b4b6; border-radius: 4px; cursor: pointer; box-shadow: 0 1px 2px rgba(11,12,12,0.15); }
     .app-map-zoom-btn:hover { background: #f3f2f1; border-color: #0b0c0c; }
     .app-map-zoom-btn:focus { outline: 3px solid #ffdd00; outline-offset: 0; border-color: #0b0c0c; }
+    .app-map-zoom-sep { margin-top: 8px; }
     .app-map-controls { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
     /* Dual keyline on the filter-chip colour dots: the dark inner border separates
        pale dots on a white chip, the white outer ring separates blue dots on a
@@ -429,7 +430,6 @@
                 </div>
               </div>
               <div class="app-map-actions">
-                <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fullscreen">Full screen</button>
                 <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-layout-menu" aria-label="Layout actions">
                   <option value="">Layout</option>
                   <option value="relayout">Re-run layout</option>
@@ -459,6 +459,9 @@
                 <button type="button" id="map-zoom-out" class="app-map-zoom-btn" aria-label="Zoom out" title="Zoom out">&minus;</button>
                 <button type="button" id="map-fit" class="app-map-zoom-btn" aria-label="Fit map to screen" title="Fit to screen">
                   <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" id="map-fullscreen" class="app-map-zoom-btn app-map-zoom-sep" aria-label="Full screen" title="Full screen">
+                  <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 9v4h4M3 13l4-4M13 7V3h-4M13 3l-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 </button>
               </div>
             </div>

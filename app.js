@@ -2587,11 +2587,19 @@ function mapZoomBy(factor) {
   cy.animate({ zoom: { level: cy.zoom() * factor, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } } }, { duration: 120 });
 }
 
+// Icons for the full-screen toggle: outward arrows to enter, inward to exit.
+const MAP_ICON_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M3 9v4h4M3 13l4-4M13 7V3h-4M13 3l-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const MAP_ICON_CONTRACT = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M7 13v-4H3M7 9l-4 4M9 3v4h4M9 7l4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 // Expand the graph panel to fill the viewport (and back).
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
   el('map-panel').classList.toggle('app-map-fullscreen', map.fullscreen);
-  el('map-fullscreen').textContent = map.fullscreen ? 'Exit full screen' : 'Full screen';
+  const btn = el('map-fullscreen');
+  btn.innerHTML = map.fullscreen ? MAP_ICON_CONTRACT : MAP_ICON_EXPAND;
+  const label = map.fullscreen ? 'Exit full screen' : 'Full screen';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
   document.body.style.overflow = map.fullscreen ? 'hidden' : '';
   if (map.cy) setTimeout(() => { map.cy.resize(); map.cy.fit(undefined, 24); }, 60);
 }
