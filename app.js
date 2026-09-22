@@ -1373,6 +1373,7 @@ const map = {
   seedMeta: null,     // seed mode: {seedCount, hops, reached}
   seedKeys: null,     // seed mode: the start-page keys, for the core group
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
+  presetPositions: null, // saved manual arrangement (id -> {x,y}), or null for auto-layout
   fullscreen: false,
   restoring: false,   // true while rebuilding from the URL
 };
@@ -1627,6 +1628,7 @@ async function mapBuild() {
     return;
   }
   el('map-results').classList.remove('app-hidden'); // visible first so the graph container has a size
+  mapUseSaved(mapLoadLocal()); // restore a saved arrangement for this map, if any
   mapRender();
   el('map-build').disabled = false;
   mapUpdateUrl();
@@ -1748,6 +1750,7 @@ async function mapSeedBuild() {
   // size when the layout fits and centres the view.
   el('map-empty').classList.add('app-hidden');
   el('map-results').classList.remove('app-hidden');
+  mapUseSaved(mapLoadLocal()); // restore a saved arrangement for this map, if any
   mapRender();
   el('map-seed-build').disabled = false;
   mapUpdateUrl();
@@ -1958,12 +1961,13 @@ function mapCompactBoxes() {
 function mapApplyView() {
   if (!map.cy) return;
   map.cy.resize(); // measure the current container before fitting/centring
-  mapCompactBoxes();
+  if (!map.presetPositions) mapCompactBoxes(); // a saved arrangement keeps its own positions
   const MIN = 0.6, MAX = 1.3;
   // Frame the core group (start page + what it links to) when there is one, so
   // the main group sits centred and readable; otherwise frame the whole graph.
+  // A saved arrangement is framed whole.
   const coreNodes = map.cy.nodes('[core = 1]');
-  const target = coreNodes.nonempty() ? coreNodes.union(coreNodes.parents()) : map.cy.elements();
+  const target = (!map.presetPositions && coreNodes.nonempty()) ? coreNodes.union(coreNodes.parents()) : map.cy.elements();
   map.cy.fit(target, 55);
   const z = map.cy.zoom();
   if (z < MIN) map.cy.zoom(MIN);
@@ -2029,6 +2033,8 @@ function mapRender() {
     if (keys.length >= 3) groupTitle.set(guide, g.inset.get(keys[0]).guideTitle);
   });
 
+  const preset = map.presetPositions; // saved arrangement, or null for auto-layout
+  const withPos = (data) => (preset && preset[data.id]) ? { data, position: { x: preset[data.id].x, y: preset[data.id].y } } : { data };
   const els = [];
   groupTitle.forEach((title, guide) => {
     els.push({ data: { id: 'grp:' + guide, label: title, kind: 'group' } });
@@ -2045,7 +2051,7 @@ function mapRender() {
                    major: (showAllLabels || grouped || isCore || (g.indeg.get(k) || 0) >= majorCut) ? 1 : 0 };
     if (grouped) data.parent = 'grp:' + p.guide;
     if (isCore) data.core = 1;
-    els.push({ data });
+    els.push(withPos(data));
   });
 
   // Edges among visible pages, plus edges to hubs when hubs are shown.
@@ -2055,7 +2061,7 @@ function mapRender() {
   const liveHubs = new Set();
   if (showHubs) shownEdges.forEach(e => { if (g.hubs.has(e.tgt)) liveHubs.add(e.tgt); });
   liveHubs.forEach(k => {
-    els.push({ data: { id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k), major: 1 } });
+    els.push(withPos({ id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k), major: 1 }));
   });
 
   const present = new Set(els.map(e => e.data.id));
@@ -2114,10 +2120,27 @@ function mapRender() {
     ],
   });
 
-  // Run the real layout, then set a readable zoom (rather than fit-to-frame).
-  const layout = map.cy.layout(mapLayout());
-  layout.one('layoutstop', mapApplyView);
-  layout.run();
+  // Run the layout. With a saved arrangement, keep the saved positions: apply
+  // them as-is when every visible node has one, or fix them and let the layout
+  // place only genuinely new nodes.
+  if (preset) {
+    const nodeIds = els.filter(e => !e.data.source && e.data.kind !== 'group').map(e => e.data.id);
+    const unknown = nodeIds.filter(id => !preset[id]);
+    if (!unknown.length) {
+      map.cy.layout({ name: 'preset' }).run();
+      mapApplyView();
+    } else {
+      const l = mapLayout();
+      l.fixedNodeConstraint = nodeIds.filter(id => preset[id]).map(id => ({ nodeId: id, position: preset[id] }));
+      const layout = map.cy.layout(l);
+      layout.one('layoutstop', () => { mapApplyView(); map.presetPositions = mapCapturePositions(); mapSaveLocal(); });
+      layout.run();
+    }
+  } else {
+    const layout = map.cy.layout(mapLayout());
+    layout.one('layoutstop', mapApplyView);
+    layout.run();
+  }
 
   // Hover reveals a node's label and lights up its immediate links.
   map.cy.on('mouseover', 'node', (evt) => {
@@ -2128,6 +2151,10 @@ function mapRender() {
     e.connectedNodes().addClass('hl');
   });
   map.cy.on('mouseout', 'node', () => { map.cy.elements('.hl').removeClass('hl'); });
+
+  // Dragging a node or box keeps the new arrangement (this browser) and holds it
+  // across filter toggles until you Re-run layout.
+  map.cy.on('dragfree', 'node', () => { map.presetPositions = mapCapturePositions(); mapSaveLocal(); });
 
   // Single tap: focus and zoom to the node. Double tap: open it in Page view.
   map.cy.on('tap', 'node', (evt) => {
@@ -2414,6 +2441,101 @@ function mapExport() {
   else mapExportCsv();
 }
 
+/* ----- Map: save and restore the arranged layout -----
+ *
+ * A saved layout captures node positions AND the filter/toggle states, keyed to
+ * the map (seed+hops, or org+types). It restores both, so the same nodes are on
+ * screen in the same places. It is auto-remembered in this browser and can also
+ * be saved to / loaded from a file. It saves the arrangement, not GOV.UK: if the
+ * pages change, rebuild and any node without a saved position is auto-placed.
+ */
+
+const MAP_LS_PREFIX = 'govuk-map-layout:';
+
+function mapStateKey() {
+  if (map.mode === 'seed') {
+    const seeds = map.seedKeys ? [...map.seedKeys].sort().join(',') : '';
+    return 'seed|' + seeds + '|' + (el('map-hops') ? el('map-hops').value : '');
+  }
+  return 'org|' + (map.selected ? map.selected.slug : '') + '|' + mapCheckedTypes().sort().join(',');
+}
+
+function mapCaptureToggles() {
+  return {
+    visibleTypes: [...map.visibleTypes],
+    hubs: el('map-show-hubs').checked,
+    orphans: el('map-show-orphans').checked,
+    welsh: el('map-show-welsh').checked,
+    allLabels: el('map-show-labels').checked,
+  };
+}
+
+function mapApplyToggles(t) {
+  if (!t) return;
+  map.visibleTypes = new Set(t.visibleTypes || []);
+  if ('hubs' in t) el('map-show-hubs').checked = !!t.hubs;
+  if ('orphans' in t) el('map-show-orphans').checked = !!t.orphans;
+  if ('welsh' in t) el('map-show-welsh').checked = !!t.welsh;
+  if ('allLabels' in t) el('map-show-labels').checked = !!t.allLabels;
+}
+
+function mapCapturePositions() {
+  const pos = {};
+  if (map.cy) map.cy.nodes(':childless').forEach(n => {
+    const p = n.position();
+    pos[n.id()] = { x: Math.round(p.x), y: Math.round(p.y) };
+  });
+  return pos;
+}
+
+function mapLayoutData() {
+  return { v: 1, key: mapStateKey(), savedAt: new Date().toISOString(),
+           toggles: mapCaptureToggles(), positions: mapCapturePositions() };
+}
+
+function mapSaveLocal() { try { localStorage.setItem(MAP_LS_PREFIX + mapStateKey(), JSON.stringify(mapLayoutData())); } catch (e) {} }
+function mapLoadLocal() { try { const s = localStorage.getItem(MAP_LS_PREFIX + mapStateKey()); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
+function mapClearLocal() { try { localStorage.removeItem(MAP_LS_PREFIX + mapStateKey()); } catch (e) {} }
+
+// Apply a saved layout to the next render (sets toggles + preset positions).
+function mapUseSaved(data) {
+  if (!data || !data.positions) { map.presetPositions = null; return false; }
+  mapApplyToggles(data.toggles);
+  map.presetPositions = data.positions;
+  return true;
+}
+
+function mapSaveLayoutFile() {
+  if (!map.graph) return;
+  mapDownloadBlob(new Blob([JSON.stringify(mapLayoutData(), null, 2)], { type: 'application/json' }), mapExportName('layout.json'));
+}
+
+function mapLoadLayoutFile(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    let data;
+    try { data = JSON.parse(r.result); } catch (e) { alert('That file is not valid JSON.'); return; }
+    if (!data || !data.positions) { alert('That file does not contain a saved layout.'); return; }
+    if (data.key && data.key !== mapStateKey() &&
+        !confirm('This layout was saved for a different map. Apply it anyway? Pages that do not match will be auto-placed.')) return;
+    mapUseSaved(data);
+    mapSaveLocal();
+    mapRender();
+  };
+  r.readAsText(file);
+}
+
+// Discard any saved arrangement and auto-arrange from scratch.
+function mapRelayout() {
+  if (!map.cy) return;
+  map.presetPositions = null;
+  mapClearLocal();
+  const l = map.cy.layout(mapLayout());
+  l.one('layoutstop', mapApplyView);
+  l.run();
+}
+
 // Expand the graph panel to fill the viewport (and back).
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
@@ -2595,13 +2717,15 @@ function setupMap() {
   el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-welsh').addEventListener('change', () => { if (map.graph) mapRender(); });
   el('map-show-labels').addEventListener('change', () => { if (map.graph) mapRender(); });
-  el('map-relayout').addEventListener('click', () => {
-    if (!map.cy) return;
-    const l = map.cy.layout(mapLayout());
-    l.one('layoutstop', mapApplyView);
-    l.run();
-  });
+  el('map-relayout').addEventListener('click', mapRelayout);
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
+  el('map-save-layout').addEventListener('click', mapSaveLayoutFile);
+  el('map-load-layout').addEventListener('click', () => el('map-load-layout-file').click());
+  el('map-load-layout-file').addEventListener('change', (e) => {
+    const f = e.target.files[0];
+    if (f) mapLoadLayoutFile(f);
+    e.target.value = '';
+  });
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
   el('map-export-go').addEventListener('click', mapExport);
   if (!mapSvgReady) { // drop the SVG option if its library failed to load
