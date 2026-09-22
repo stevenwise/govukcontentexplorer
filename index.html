@@ -130,6 +130,8 @@
     /* Match the "Using the map" bullets to the key text size. */
     .app-map-using { font-size: 0.875rem; }
     .app-map-using li { margin-bottom: 4px; }
+    /* Breathing room between the bottom of the map and the key/tips below it. */
+    .app-map-caption { margin-top: 28px; }
     /* Two columns with a grey keyline down the middle; stacks on narrow screens. */
     .app-map-caption-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
     .app-map-caption-cols > .app-map-caption-col + .app-map-caption-col { border-left: 1px solid #b1b4b6; padding-left: 32px; }
@@ -440,7 +442,7 @@
             <div id="map-type-chips" class="app-chips"></div>
 
             <div id="map-graph"></div>
-            <div id="map-caption" class="app-map-caption govuk-!-margin-top-2"></div>
+            <div id="map-caption" class="app-map-caption"></div>
           </div>
         </div>
       </section>
