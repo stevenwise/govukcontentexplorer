@@ -1760,6 +1760,17 @@ async function mapSeedBuild() {
 // needs no extra requests. The first part is served at the guide root; the rest
 // at root/<slug>. Normal pages become one unit, keyed by base_path. Links to a
 // part URL, or to the root, resolve to the matching part node.
+// Last-updated date (as YYYY-MM-DD) and editorial owner from a content item, for
+// the CSV export. A guide's parts share the guide's date and owner.
+function mapContentUpdated(d) {
+  const iso = d && (d.public_updated_at || d.updated_at || (d.details && d.details.first_public_at));
+  return iso ? String(iso).slice(0, 10) : '';
+}
+function mapContentOwner(d) {
+  const ppo = d && d.links && d.links.primary_publishing_organisation;
+  return (ppo && ppo[0] && ppo[0].title) || '';
+}
+
 function mapComputeUnits(pages) {
   const units = new Map();     // key -> {key, title, format, welsh, links:Set}
   const alias = new Map();     // root/<overview-slug> -> root (part 0)
@@ -1769,6 +1780,7 @@ function mapComputeUnits(pages) {
     const reqKey = keyPath(p.path);
     if (!reqKey) return;
     const canon = (d && d.base_path) ? keyPath(d.base_path) : reqKey;
+    const updated = mapContentUpdated(d), owner = mapContentOwner(d);
     const parts = (d && d.details && Array.isArray(d.details.parts)) ? d.details.parts : [];
     if (parts.length) {
       if (doneGuides.has(canon)) return; // expand each guide once
@@ -1789,6 +1801,7 @@ function mapComputeUnits(pages) {
           title: pt.title || p.title,
           format: (d && d.document_type) || p.format,
           welsh: !!(d && d.locale === 'cy'),
+          updated, owner,
           links,
           guide: canon,          // which guide this part belongs to
           guideTitle: p.title,   // the guide's own title, for the group box label
@@ -1800,7 +1813,7 @@ function mapComputeUnits(pages) {
         mapExtractLinks(d).forEach(k => links.set(k, 'body'));
         mapCuratedLinks(d).forEach(k => { if (!links.has(k)) links.set(k, 'related'); });
       }
-      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, links });
+      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, updated, owner, links });
     }
   });
   return { units, alias };
@@ -2269,6 +2282,8 @@ function mapExportCsv() {
       content_type: nodeType(k),
       category,
       part_of_guide: p && p.guide ? p.guideTitle : '',
+      last_updated: (p && p.updated) || '',
+      owner: (p && p.owner) || '',
       welsh: p && p.welsh ? 'yes' : '',
       links_out_count: outs.length,
       links_in_count: ins.length,
@@ -2285,12 +2300,46 @@ function mapExportCsv() {
   hubRows.sort(byInThenTitle);
   const rows = pageRows.concat(hubRows);
 
-  const header = ['title', 'path', 'url', 'content_type', 'category', 'part_of_guide', 'welsh',
+  const header = ['title', 'path', 'url', 'content_type', 'category', 'part_of_guide',
+                  'last_updated', 'owner', 'welsh',
                   'links_out_count', 'links_in_count', 'links_out', 'links_in'];
   const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const lines = [header.join(',')];
   rows.forEach(r => lines.push(header.map(h => csvCell(r[h])).join(',')));
-  mapDownloadBlob(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' }), mapExportName('csv'));
+  mapDownloadBlob(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' }), mapExportName('pages.csv'));
+}
+
+// Edge-list export: one row per connection, the format graph tools (Gephi) and
+// pivot tables prefer. Source is always a page in your set; target may be a
+// shared destination outside it.
+function mapExportEdgesCsv() {
+  if (!map.graph) return;
+  const g = map.graph;
+  const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
+  const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
+  const header = ['source', 'source_path', 'source_type', 'target', 'target_path', 'target_type',
+                  'target_category', 'link_kind'];
+  const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [header.join(',')];
+  g.edges.forEach(e => {
+    const targetInSet = g.inset.has(e.tgt);
+    lines.push([
+      nodeLabel(e.src), e.src, nodeType(e.src),
+      nodeLabel(e.tgt), e.tgt, nodeType(e.tgt),
+      targetInSet ? 'Page in set' : 'Shared destination',
+      e.kind === 'related' ? 'related' : 'body',
+    ].map(csvCell).join(','));
+  });
+  mapDownloadBlob(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' }), mapExportName('connections.csv'));
+}
+
+// Dispatch from the export dropdown.
+function mapExport() {
+  const fmt = el('map-export-format').value;
+  if (fmt === 'svg') mapExportSvg();
+  else if (fmt === 'png') mapExportPng();
+  else if (fmt === 'csv-connections') mapExportEdgesCsv();
+  else mapExportCsv();
 }
 
 // Expand the graph panel to fill the viewport (and back).
@@ -2482,10 +2531,12 @@ function setupMap() {
   });
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
-  el('map-export-svg').addEventListener('click', mapExportSvg);
-  el('map-export-png').addEventListener('click', mapExportPng);
-  el('map-export-csv').addEventListener('click', mapExportCsv);
-  if (!mapSvgReady) el('map-export-svg').classList.add('app-hidden'); // hide if the SVG lib failed to load
+  el('map-export-go').addEventListener('click', mapExport);
+  if (!mapSvgReady) { // drop the SVG option if its library failed to load
+    const opt = el('map-export-format').querySelector('option[value="svg"]');
+    if (opt) opt.remove();
+    el('map-export-format').value = 'png';
+  }
 
   // Content-type filter chips.
   el('map-type-chips').addEventListener('click', (e) => {
