@@ -2299,6 +2299,35 @@ function mapLegendSvg(items, width) {
   return { body, height: y + pad };
 }
 
+// The map's caption, as scannable bullets. One source drives both the on-screen
+// list and the key/caption in exports.
+const MAP_CAPTION = [
+  { heading: 'Reading the map', items: [
+    'Each circle is a page in your set. Its colour shows the content type and its size shows how many other pages link to it.',
+    'Squares are shared destinations that sit outside your set.',
+    'A dashed box groups the parts of one guide.',
+    'A solid line is a link in the page body. A dashed line is a related content link.',
+  ] },
+  { heading: 'Using the map', items: [
+    'Single-click a node to zoom to it.',
+    'Double-click a node to open it in Page view.',
+    'Hover a node to highlight its links.',
+    'Drag a node, or a guide box by its label, to move it. Your layout is saved automatically.',
+    'Drag the background to pan, and scroll to zoom.',
+  ] },
+];
+
+// Render the caption as a bulleted list on screen.
+function mapRenderCaptionHtml() {
+  const box = el('map-caption');
+  if (!box) return;
+  box.innerHTML = MAP_CAPTION.map(sec =>
+    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">${esc(sec.heading)}</h3>` +
+    `<ul class="govuk-list govuk-list--bullet govuk-body-s app-muted govuk-!-margin-bottom-2">` +
+    sec.items.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>'
+  ).join('');
+}
+
 // Greedy word-wrap into lines of at most maxChars characters.
 function mapWrapText(text, maxChars) {
   const out = [];
@@ -2322,22 +2351,33 @@ function mapBuildSvg() {
   const { body, height: LH } = mapLegendSvg(mapLegendItems(), OW);
   const keyBottom = keyTop + 14 + LH;
 
-  // Caption under the key, wrapped so no line exceeds a readable length.
-  const caption = (el('map-caption') && el('map-caption').textContent.trim()) || '';
-  const capMax = Math.max(48, Math.min(75, Math.floor((OW - 32) / 6.6))); // <= ~75 chars/line for readability
-  const capLines = caption ? mapWrapText(caption, capMax) : [];
-  const capTop = keyBottom + 28;
-  const lineH = 17;
-  const capBlock = capLines.map((ln, i) =>
-    `<text x="16" y="${capTop + i * lineH}" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#505a5f">${esc(ln)}</text>`).join('');
-
-  const TH = (capLines.length ? capTop + (capLines.length - 1) * lineH : keyBottom) + 20;
+  // Caption under the key: the same bullets as on screen, so it scans. Text wraps
+  // to a comfortable line length; bullet continuation lines hang-indent.
+  const font = 'Arial, Helvetica, sans-serif';
+  const capMax = Math.max(60, Math.min(100, Math.floor((OW - 52) / 6.3)));
+  const lineH = 18;
+  let cy = keyBottom + 30;
+  const parts = [];
+  MAP_CAPTION.forEach((sec, si) => {
+    if (si) cy += 10; // gap between sections
+    parts.push(`<text x="16" y="${cy}" font-family="${font}" font-size="13" font-weight="bold" fill="#0b0c0c">${esc(sec.heading)}</text>`);
+    cy += 22;
+    sec.items.forEach(item => {
+      mapWrapText(item, capMax).forEach((ln, i) => {
+        if (i === 0) parts.push(`<text x="18" y="${cy}" font-family="${font}" font-size="12" fill="#505a5f">&#8226;</text>`);
+        parts.push(`<text x="34" y="${cy}" font-family="${font}" font-size="12" fill="#505a5f">${esc(ln)}</text>`);
+        cy += lineH;
+      });
+      cy += 3; // small gap between bullets
+    });
+  });
+  const TH = cy + 12;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${TH}" viewBox="0 0 ${OW} ${TH}">` +
     `<rect width="${OW}" height="${TH}" fill="#ffffff"/>` +
     graphSvg +
-    `<g transform="translate(0,${keyTop})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="18" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
+    `<g transform="translate(0,${keyTop})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="18" font-family="${font}" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
     `<g transform="translate(0,14)">${body}</g></g>` +
-    capBlock +
+    parts.join('') +
     `</svg>`;
 }
 
@@ -2678,6 +2718,7 @@ async function mapRestoreFromUrl() {
 
 function setupMap() {
   const search = el('map-org-search');
+  mapRenderCaptionHtml();
 
   ensureOrgs().then(() => {
     if (estate.orgsSource === 'aggregate-fallback') {
