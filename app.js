@@ -1962,6 +1962,7 @@ function mapApplyView() {
   if (!map.cy) return;
   map.cy.resize(); // measure the current container before fitting/centring
   if (!map.presetPositions) mapCompactBoxes(); // a saved arrangement keeps its own positions
+  map.cy.style().update(); // re-evaluate box-width-based label wrapping now sizes are final
   const MIN = 0.6, MAX = 1.3;
   // Frame the core group (start page + what it links to) when there is one, so
   // the main group sits centred and readable; otherwise frame the whole graph.
@@ -2113,7 +2114,12 @@ function mapRender() {
         'border-width': 1, 'border-style': 'dashed', 'border-color': '#8f9296', 'padding': 16,
         'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -6,
         'font-size': '12px', 'font-weight': 'bold', 'color': '#505a5f', 'text-opacity': 1,
-        'text-wrap': 'wrap', 'text-max-width': '160px',
+        // Wrap the label to the box's own width, so it stays on one line when the
+        // box is wide enough and only wraps for a narrow box. A white panel behind
+        // it lifts it clear of the connectors underneath.
+        'text-wrap': 'wrap', 'text-max-width': (ele) => Math.max(90, Math.round(ele.width())) + 'px',
+        'text-background-color': '#ffffff', 'text-background-opacity': 1,
+        'text-background-padding': 3, 'text-background-shape': 'round-rectangle',
       } },
       // Selecting a box would draw a distracting border; keep it looking the same.
       { selector: ':parent:selected', style: { 'border-width': 1, 'border-color': '#8f9296', 'border-style': 'dashed' } },
