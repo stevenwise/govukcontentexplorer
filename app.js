@@ -1895,11 +1895,12 @@ function mapLayout() {
   // rather than shrunk to a dense dot-cloud.
   if (mapFcoseReady) {
     return { name: 'fcose', quality: 'proof', animate: false, randomize: true, fit: false,
-             padding: 40, nodeSeparation: 220, idealEdgeLength: 170, nodeRepulsion: 16000,
+             padding: 40, nodeSeparation: 240, idealEdgeLength: 170, nodeRepulsion: 17000,
              edgeElasticity: 0.1, gravity: 0.06, gravityRange: 4,
-             // Pull each guide box's parts tightly toward their group so a guide
-             // reads as one cluster while the map as a whole stays spread out.
-             gravityCompound: 2.4, gravityRangeCompound: 2,
+             // A stronger, short-range compound gravity keeps sparse boxes tight
+             // (they were ballooning); modest repulsion loosens dense clusters a
+             // little without re-inflating the boxes.
+             gravityCompound: 3.5, gravityRangeCompound: 1.6,
              packComponents: true, numIter: 3000 };
   }
   return { name: 'cose', animate: false, fit: false, padding: 40, randomize: true,
@@ -1977,7 +1978,9 @@ function mapRender() {
   });
   const groupTitle = new Map(); // guide canon -> title, for guides that earn a box
   guideVisible.forEach((keys, guide) => {
-    if (keys.length >= 2) groupTitle.set(guide, g.inset.get(keys[0]).guideTitle);
+    // Box a guide only when 3+ of its parts are on screen. Two-part guides add
+    // box clutter (and overlap) for little value, so they show as loose nodes.
+    if (keys.length >= 3) groupTitle.set(guide, g.inset.get(keys[0]).guideTitle);
   });
 
   const els = [];
