@@ -2354,7 +2354,7 @@ function mapBuildSvg() {
   // Caption under the key: the same bullets as on screen, so it scans. Text wraps
   // to a comfortable line length; bullet continuation lines hang-indent.
   const font = 'Arial, Helvetica, sans-serif';
-  const capMax = Math.max(60, Math.min(100, Math.floor((OW - 52) / 6.3)));
+  const capMax = Math.max(60, Math.floor((OW - 52) / 6.3)); // full width; bullets keep it scannable
   const lineH = 18;
   let cy = keyBottom + 30;
   const parts = [];
