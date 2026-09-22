@@ -2738,10 +2738,16 @@ function setupMap() {
   el('map-show-orphans').addEventListener('change', mapRerender);
   el('map-show-welsh').addEventListener('change', mapRerender);
   el('map-show-labels').addEventListener('change', mapRerender);
-  el('map-relayout').addEventListener('click', mapRelayout);
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
-  el('map-save-layout').addEventListener('click', mapSaveLayoutFile);
-  el('map-load-layout').addEventListener('click', () => el('map-load-layout-file').click());
+  // Layout menu: Re-run layout / Save layout / Load layout. Acts on selection,
+  // then resets to the "Layout" label.
+  el('map-layout-menu').addEventListener('change', (e) => {
+    const v = e.target.value;
+    e.target.selectedIndex = 0;
+    if (v === 'relayout') mapRelayout();
+    else if (v === 'save') mapSaveLayoutFile();
+    else if (v === 'load') el('map-load-layout-file').click();
+  });
   el('map-load-layout-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
     if (f) mapLoadLayoutFile(f);

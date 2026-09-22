@@ -130,6 +130,8 @@
     .app-export { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .app-export__label { margin: 0; font-weight: 700; }
     .app-export .govuk-select { max-width: 260px; }
+    .app-map-btns { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #map-layout-menu { width: auto; }
     /* Full-screen graph: the results panel fills the viewport. */
     #map-panel.app-map-fullscreen { position: fixed; inset: 0; z-index: 1000; margin: 0; border: 0; background: #ffffff; overflow-y: auto; padding: 16px 20px; }
     #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 210px); }
@@ -465,12 +467,15 @@
                 </div>
               </div>
               <div class="app-map-actions">
-                <div class="govuk-button-group govuk-!-margin-bottom-0">
+                <div class="govuk-button-group govuk-!-margin-bottom-0 app-map-btns">
                   <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fullscreen">Full screen</button>
-                  <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-relayout">Re-run layout</button>
                   <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-fit">Fit to screen</button>
-                  <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-save-layout">Save layout</button>
-                  <button class="govuk-button govuk-button--secondary govuk-!-margin-bottom-0" type="button" id="map-load-layout">Load layout</button>
+                  <select class="govuk-select govuk-!-margin-bottom-0" id="map-layout-menu" aria-label="Layout actions">
+                    <option value="">Layout</option>
+                    <option value="relayout">Re-run layout</option>
+                    <option value="save">Save layout</option>
+                    <option value="load">Load layout</option>
+                  </select>
                   <input type="file" id="map-load-layout-file" accept="application/json,.json" style="display:none">
                 </div>
                 <div class="app-export">
