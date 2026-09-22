@@ -2176,7 +2176,8 @@ const MAP_USING = [
   'Double-click a node to open it in Page view.',
   'Hover a node to highlight its links.',
   'Drag a node, or a guide box by its label, to move it. Your layout is saved automatically.',
-  'Drag the background to pan, and scroll to zoom.',
+  'Drag the background to pan.',
+  'Zoom with the + and − buttons on the map, the mouse wheel, or a two-finger swipe.',
 ];
 
 // A small inline-SVG marker for a key row, matching how the element is drawn.
@@ -2578,6 +2579,14 @@ function mapRelayout() {
   l.run();
 }
 
+// Zoom the map by a factor, holding the centre of the viewport fixed, so the
+// on-screen + and - buttons match how the mouse wheel zooms.
+function mapZoomBy(factor) {
+  if (!map.cy) return;
+  const cy = map.cy;
+  cy.animate({ zoom: { level: cy.zoom() * factor, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } } }, { duration: 120 });
+}
+
 // Expand the graph panel to fill the viewport (and back).
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
@@ -2688,6 +2697,9 @@ function setupMap() {
   el('map-show-welsh').addEventListener('change', mapRerender);
   el('map-show-labels').addEventListener('change', mapRerender);
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
+  // On-screen zoom, centred on the map, for mice without a usable wheel.
+  el('map-zoom-in').addEventListener('click', () => mapZoomBy(1.3));
+  el('map-zoom-out').addEventListener('click', () => mapZoomBy(1 / 1.3));
   // Layout menu: Re-run layout / Save layout / Load layout. Acts on selection,
   // then resets to the "Layout" label.
   el('map-layout-menu').addEventListener('change', (e) => {
