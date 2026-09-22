@@ -2240,6 +2240,59 @@ function mapExportPng() {
   mapDownloadBlob(blob, mapExportName('png'));
 }
 
+// Data export: one row per page, with its connections and their content types.
+// Exports the full built map (not the on-screen filtered view) so the data is
+// complete. Includes both directions (what a page links to and what links to it),
+// degree counts for sorting, the guide a part belongs to, and whether each linked
+// page is in your set or a shared destination outside it.
+function mapExportCsv() {
+  if (!map.graph) return;
+  const g = map.graph;
+  const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
+  const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
+
+  const outAdj = new Map(), inAdj = new Map();
+  const push = (m, key, val) => { if (!m.has(key)) m.set(key, []); m.get(key).push(val); };
+  g.edges.forEach(e => { push(outAdj, e.src, e); push(inAdj, e.tgt, e); });
+
+  // A connection rendered as "Title [content type] (related)" where relevant.
+  const conn = (k, kind) => `${nodeLabel(k)} [${nodeType(k)}]${kind === 'related' ? ' (related)' : ''}`;
+
+  const rowFor = (k, category) => {
+    const p = g.inset.get(k);
+    const outs = (outAdj.get(k) || []).map(e => conn(e.tgt, e.kind));
+    const ins = (inAdj.get(k) || []).map(e => conn(e.src, e.kind));
+    return {
+      title: nodeLabel(k),
+      path: k,
+      url: GOVUK + k,
+      content_type: nodeType(k),
+      category,
+      part_of_guide: p && p.guide ? p.guideTitle : '',
+      welsh: p && p.welsh ? 'yes' : '',
+      links_out_count: outs.length,
+      links_in_count: ins.length,
+      links_out: outs.join(' | '),
+      links_in: ins.join(' | '),
+    };
+  };
+
+  const pageRows = [...g.inset.keys()].map(k => rowFor(k, 'Page in set'));
+  const hubRows = [...g.hubs].map(k => rowFor(k, 'Shared destination'));
+  // Most-linked-to first within each group: surfaces the hubs of your estate.
+  const byInThenTitle = (a, b) => b.links_in_count - a.links_in_count || a.title.localeCompare(b.title);
+  pageRows.sort(byInThenTitle);
+  hubRows.sort(byInThenTitle);
+  const rows = pageRows.concat(hubRows);
+
+  const header = ['title', 'path', 'url', 'content_type', 'category', 'part_of_guide', 'welsh',
+                  'links_out_count', 'links_in_count', 'links_out', 'links_in'];
+  const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const lines = [header.join(',')];
+  rows.forEach(r => lines.push(header.map(h => csvCell(r[h])).join(',')));
+  mapDownloadBlob(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' }), mapExportName('csv'));
+}
+
 // Expand the graph panel to fill the viewport (and back).
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
@@ -2431,6 +2484,7 @@ function setupMap() {
   el('map-fullscreen').addEventListener('click', () => mapToggleFullscreen());
   el('map-export-svg').addEventListener('click', mapExportSvg);
   el('map-export-png').addEventListener('click', mapExportPng);
+  el('map-export-csv').addEventListener('click', mapExportCsv);
   if (!mapSvgReady) el('map-export-svg').classList.add('app-hidden'); // hide if the SVG lib failed to load
 
   // Content-type filter chips.
