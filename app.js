@@ -2033,7 +2033,7 @@ function mapRenderTypeChips(cm) {
   const chip = (t, n) => {
     const active = map.visibleTypes.has(t);
     return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(t)}">
-      <span class="app-legend-swatch" style="background:${cm[t] || '#1d70b8'};width:10px;height:10px;margin-right:5px;"></span>${esc(formatLabel(t) || 'Unknown')} (${n.toLocaleString('en-GB')})</button>`;
+      <span class="app-legend-swatch" style="background:${cm[t] || '#1d70b8'};width:12px;height:12px;margin-right:5px;"></span>${esc(formatLabel(t) || 'Unknown')} (${n.toLocaleString('en-GB')})</button>`;
   };
   let html = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>`;
   // One-click shortcut to filter the map to guidance content types (like Estate view).
@@ -2117,7 +2117,7 @@ function mapLegendSvg(items, width) {
     const itemW = sw + gap + labelW;
     if (x + itemW > width - pad && x > pad) { x = pad; y += rowH; }
     const cy = y - 4;
-    if (it.kind === 'circle') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}"/>`;
+    if (it.kind === 'circle') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-opacity="0.25" stroke-width="1"/>`;
     else if (it.kind === 'ring') body += `<circle cx="${x + sw / 2}" cy="${cy}" r="${sw / 2}" fill="${it.color}" stroke="#0b0c0c" stroke-width="2.5"/>`;
     else if (it.kind === 'square') body += `<rect x="${x}" y="${cy - sw / 2}" width="${sw}" height="${sw}" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`;
     else if (it.kind === 'line') body += `<line x1="${x}" y1="${cy}" x2="${x + sw + 4}" y2="${cy}" stroke="${it.color}" stroke-width="2"/>`;
