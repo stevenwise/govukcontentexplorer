@@ -2092,7 +2092,7 @@ function mapRender() {
       { selector: ':parent', style: {
         'shape': 'round-rectangle', 'background-color': '#f3f2f1', 'background-opacity': 0.55,
         'border-width': 1, 'border-style': 'dashed', 'border-color': '#8f9296', 'padding': 16,
-        'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -14,
+        'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -6,
         'font-size': '12px', 'font-weight': 'bold', 'color': '#505a5f', 'text-opacity': 1,
         'text-wrap': 'wrap', 'text-max-width': '160px',
       } },
