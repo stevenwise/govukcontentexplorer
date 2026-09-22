@@ -2279,11 +2279,13 @@ function mapBuildSvg() {
   const W = wm ? Math.ceil(parseFloat(wm[1])) : 1000;
   const H = hm ? Math.ceil(parseFloat(hm[1])) : 800;
   const OW = Math.max(W, 520);
+  const GAP = 48; // breathing room between the graph and the key
   const { body, height: LH } = mapLegendSvg(mapLegendItems(), OW);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${H + LH}" viewBox="0 0 ${OW} ${H + LH}">` +
-    `<rect width="${OW}" height="${H + LH}" fill="#ffffff"/>` +
+  const TH = H + GAP + LH;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${OW}" height="${TH}" viewBox="0 0 ${OW} ${TH}">` +
+    `<rect width="${OW}" height="${TH}" fill="#ffffff"/>` +
     graphSvg +
-    `<g transform="translate(0,${H})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="${18}" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
+    `<g transform="translate(0,${H + GAP})"><line x1="0" y1="0" x2="${OW}" y2="0" stroke="#b1b4b6" stroke-width="1"/><text x="16" y="${18}" font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="bold" fill="#505a5f">Key</text>` +
     `<g transform="translate(0,14)">${body}</g></g></svg>`;
 }
 
