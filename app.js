@@ -2032,7 +2032,7 @@ function mapRender() {
   map.keyCtx = keyCtx;
   mapRenderKey(keyCtx);
   mapRenderCards();
-  el('map-results-heading').textContent = 'Service map';
+  el('map-results-heading').textContent = 'Content ecosystem map';
 }
 
 // Content-type filter chips over the graph. Empty selection shows all; picking
@@ -2064,7 +2064,7 @@ function mapRenderTypeChips(cm) {
 /* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
 
 function mapExportName(ext) {
-  const base = 'govuk-service-map';
+  const base = 'govuk-content-ecosystem-map';
   const d = new Date();
   const p = n => String(n).padStart(2, '0');
   const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
