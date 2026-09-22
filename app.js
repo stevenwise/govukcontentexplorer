@@ -1366,6 +1366,7 @@ const map = {
   stats: null,
   seedMeta: null,     // {seedCount, hops, reached}
   seedKeys: null,     // the start-page keys, for the core group
+  sharedView: null,   // a view-link arrangement to apply on the next build, or null
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
   presetPositions: null, // saved manual arrangement (id -> {x,y}), or null for auto-layout
   fullscreen: false,
@@ -1572,7 +1573,11 @@ async function mapSeedBuild() {
   // size when the layout fits and centres the view.
   el('map-empty').classList.add('app-hidden');
   el('map-results').classList.remove('app-hidden');
-  mapUseSaved(mapLoadLocal()); // restore a saved arrangement for this map, if any
+  // A shared view link (map.sharedView) wins for this build, then we revert to
+  // this browser's own saved arrangement for later builds.
+  const saved = map.sharedView || mapLoadLocal();
+  map.sharedView = null;
+  mapUseSaved(saved);
   mapRender();
   el('map-seed-build').disabled = false;
   mapUpdateUrl();
@@ -2380,6 +2385,99 @@ function mapLayoutData() {
            toggles: mapCaptureToggles(), positions: mapCapturePositions() };
 }
 
+/* ----- Map: shareable view link (self-contained, no file) -----
+ * The exact view (which start pages, toggles, and every node's position) is
+ * packed into the link's # fragment, gzip-compressed where the browser supports
+ * it. The readable recipe also goes in the query string, so a link whose
+ * fragment gets stripped still opens the same set of pages (auto-arranged).
+ */
+
+// The compact payload a link needs to reproduce the current view.
+function mapViewPayload() {
+  return {
+    s: mapReadSeeds(),
+    h: parseInt(el('map-hops').value, 10) === 2 ? 2 : 1,
+    c: parseInt(el('map-seed-cap').value, 10) || 150,
+    t: mapCaptureToggles(),
+    p: mapCapturePositions(),
+  };
+}
+
+// URL-safe base64 over raw bytes (no +, / or = to survive in a URL fragment).
+function bytesToB64url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlToBytes(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  const bin = atob(s);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function gzipString(str) {
+  const stream = new Blob([new TextEncoder().encode(str)]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+async function gunzipBytes(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+// Encode a payload to a fragment string: a one-char flag ('g' gzip, 'r' raw)
+// then URL-safe base64. Falls back to raw when compression is unavailable.
+async function mapEncodeView(payload) {
+  const json = JSON.stringify(payload);
+  try {
+    if (typeof CompressionStream === 'function') return 'g' + bytesToB64url(await gzipString(json));
+  } catch (e) { /* fall back to raw below */ }
+  return 'r' + bytesToB64url(new TextEncoder().encode(json));
+}
+async function mapDecodeView(data) {
+  const flag = data[0];
+  const bytes = b64urlToBytes(data.slice(1));
+  const json = flag === 'g' ? await gunzipBytes(bytes) : new TextDecoder().decode(bytes);
+  return JSON.parse(json);
+}
+
+async function mapBuildViewUrl() {
+  const payload = mapViewPayload();
+  const frag = await mapEncodeView(payload);
+  const p = new URLSearchParams();
+  if (payload.s.length) p.set('mseeds', payload.s.join('|'));
+  if (payload.h === 2) p.set('mhops', '2');
+  if (payload.c && payload.c !== 150) p.set('mscap', String(payload.c));
+  const qs = p.toString();
+  return location.origin + location.pathname + (qs ? '?' + qs : '') + '#view=' + frag;
+}
+
+// Briefly show a message next to the map action menus.
+let mapStatusTimer = null;
+function mapFlashStatus(msg) {
+  const s = el('map-action-status');
+  if (!s) return;
+  s.textContent = msg;
+  clearTimeout(mapStatusTimer);
+  mapStatusTimer = setTimeout(() => { s.textContent = ''; }, 4000);
+}
+
+async function mapCopyViewLink() {
+  if (!map.graph) return;
+  let url;
+  try { url = await mapBuildViewUrl(); }
+  catch (e) { mapFlashStatus('Could not build the link.'); return; }
+  try {
+    await navigator.clipboard.writeText(url);
+    mapFlashStatus('View link copied. Paste it to share this exact view.');
+  } catch (e) {
+    // Clipboard blocked or no user gesture: show the link for manual copying.
+    prompt('Copy this link to share the exact view:', url);
+  }
+}
+
 function mapLoadLocal() { try { const s = localStorage.getItem(MAP_LS_PREFIX + mapStateKey()); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 function mapClearLocal() { try { localStorage.removeItem(MAP_LS_PREFIX + mapStateKey()); } catch (e) {} }
 
@@ -2486,20 +2584,39 @@ function mapUpdateUrl() {
   const cap = parseInt(el('map-seed-cap').value, 10);
   if (cap && cap !== 150) p.set('mscap', String(cap));
   const qs = p.toString();
-  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
+  // Absolute URL with no fragment, so opening a shared #view= link cleans the
+  // long fragment out of the address bar (a bare '?query' keeps the hash).
+  history.replaceState(null, '', location.origin + location.pathname + (qs ? '?' + qs : ''));
 }
 
 async function mapRestoreFromUrl() {
   const p = new URLSearchParams(location.search);
+  const viewMatch = (location.hash || '').match(/[#&]view=([^&]+)/);
   const seeds = p.get('mseeds');
-  if (!seeds) return;
+  if (!viewMatch && !seeds) return;
   map.restoring = true;
   try {
     showView('map');
-    el('map-seeds').value = seeds.split('|').join('\n');
-    if (p.get('mhops') === '2') el('map-hops').value = '2';
-    if (p.get('mscap')) el('map-seed-cap').value = p.get('mscap');
-    await mapSeedBuild();
+    // A shared view link (#view=...) carries the exact arrangement. Decode it
+    // and build from that; fall back to the readable query recipe if it fails.
+    if (viewMatch) {
+      let payload = null;
+      try { payload = await mapDecodeView(decodeURIComponent(viewMatch[1])); } catch (e) { payload = null; }
+      if (payload && Array.isArray(payload.s) && payload.s.length) {
+        el('map-seeds').value = payload.s.join('\n');
+        el('map-hops').value = payload.h === 2 ? '2' : '1';
+        if (payload.c) el('map-seed-cap').value = payload.c;
+        map.sharedView = { toggles: payload.t, positions: payload.p };
+        await mapSeedBuild();
+        return;
+      }
+    }
+    if (seeds) {
+      el('map-seeds').value = seeds.split('|').join('\n');
+      if (p.get('mhops') === '2') el('map-hops').value = '2';
+      if (p.get('mscap')) el('map-seed-cap').value = p.get('mscap');
+      await mapSeedBuild();
+    }
   } finally {
     map.restoring = false;
     mapUpdateUrl();
@@ -2544,6 +2661,7 @@ function setupMap() {
     if (v === 'relayout') mapRelayout();
     else if (v === 'save') mapSaveLayoutFile();
     else if (v === 'load') el('map-load-layout-file').click();
+    else if (v === 'copylink') mapCopyViewLink();
   });
   el('map-load-layout-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
