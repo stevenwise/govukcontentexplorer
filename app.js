@@ -2493,15 +2493,28 @@ function mapLayoutData() {
            toggles: mapCaptureToggles(), positions: mapCapturePositions() };
 }
 
-function mapSaveLocal() { try { localStorage.setItem(MAP_LS_PREFIX + mapStateKey(), JSON.stringify(mapLayoutData())); } catch (e) {} }
 function mapLoadLocal() { try { const s = localStorage.getItem(MAP_LS_PREFIX + mapStateKey()); return s ? JSON.parse(s) : null; } catch (e) { return null; } }
 function mapClearLocal() { try { localStorage.removeItem(MAP_LS_PREFIX + mapStateKey()); } catch (e) {} }
 
-// Apply a saved layout to the next render (sets toggles + preset positions).
+// Persist the current view (toggle/filter states always; node positions only when
+// a manual arrangement is active, so we never save mid-layout positions). Toggles
+// therefore persist even without dragging anything.
+function mapSaveLocal() {
+  try {
+    const prev = mapLoadLocal();
+    const positions = map.presetPositions ? mapCapturePositions() : ((prev && prev.positions) || {});
+    const data = { v: 1, key: mapStateKey(), savedAt: new Date().toISOString(), toggles: mapCaptureToggles(), positions };
+    localStorage.setItem(MAP_LS_PREFIX + mapStateKey(), JSON.stringify(data));
+  } catch (e) {}
+}
+
+// Apply a saved view to the next render: always the toggles; positions only when
+// there is a real arrangement (an empty set means auto-layout, keeping box
+// compaction and core-centring).
 function mapUseSaved(data) {
-  if (!data || !data.positions) { map.presetPositions = null; return false; }
+  if (!data) { map.presetPositions = null; return false; }
   mapApplyToggles(data.toggles);
-  map.presetPositions = data.positions;
+  map.presetPositions = (data.positions && Object.keys(data.positions).length) ? data.positions : null;
   return true;
 }
 
@@ -2524,6 +2537,14 @@ function mapLoadLayoutFile(file) {
     mapRender();
   };
   r.readAsText(file);
+}
+
+// Re-render after a toggle/filter change, and keep a saved arrangement's toggle
+// states in sync so they persist (Show all labels, Welsh, filters, and so on).
+function mapRerender() {
+  if (!map.graph) return;
+  mapRender();
+  mapSaveLocal();
 }
 
 // Discard any saved arrangement and auto-arrange from scratch.
@@ -2713,10 +2734,10 @@ function setupMap() {
   el('map-clear-types').addEventListener('click', mapClearTypes);
 
   // Toggles and filters re-render the same graph (no re-fetch).
-  el('map-show-hubs').addEventListener('change', () => { if (map.graph) mapRender(); });
-  el('map-show-orphans').addEventListener('change', () => { if (map.graph) mapRender(); });
-  el('map-show-welsh').addEventListener('change', () => { if (map.graph) mapRender(); });
-  el('map-show-labels').addEventListener('change', () => { if (map.graph) mapRender(); });
+  el('map-show-hubs').addEventListener('change', mapRerender);
+  el('map-show-orphans').addEventListener('change', mapRerender);
+  el('map-show-welsh').addEventListener('change', mapRerender);
+  el('map-show-labels').addEventListener('change', mapRerender);
   el('map-relayout').addEventListener('click', mapRelayout);
   el('map-fit').addEventListener('click', () => { if (map.cy) map.cy.fit(undefined, 24); });
   el('map-save-layout').addEventListener('click', mapSaveLayoutFile);
@@ -2739,18 +2760,18 @@ function setupMap() {
     const clear = e.target.closest('[data-type-clear]');
     const guidance = e.target.closest('[data-type-guidance]');
     const chip = e.target.closest('[data-type]');
-    if (clear) { map.visibleTypes.clear(); mapRender(); return; }
+    if (clear) { map.visibleTypes.clear(); mapRerender(); return; }
     if (guidance) {
       const present = [...new Set(map.graph.pages.map(p => p.format))].filter(t => GUIDANCE_TYPES.includes(t));
       const allActive = map.visibleTypes.size === present.length && present.every(t => map.visibleTypes.has(t));
       map.visibleTypes = allActive ? new Set() : new Set(present); // toggle guidance-only
-      mapRender();
+      mapRerender();
       return;
     }
     if (!chip) return;
     const t = chip.dataset.type;
     if (map.visibleTypes.has(t)) map.visibleTypes.delete(t); else map.visibleTypes.add(t);
-    mapRender();
+    mapRerender();
   });
 
   // Esc leaves full screen.
