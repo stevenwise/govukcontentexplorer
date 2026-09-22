@@ -115,6 +115,10 @@
     .app-typebar-fill { height: 16px; min-width: 3px; }
     #estate-cards .govuk-table__cell { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
     /* Map view */
+    /* Constrain the setup body text to a comfortable line length; the map and its
+       results stay full width. Falls back to full width on narrow screens. */
+    .app-readable { max-width: 75%; }
+    @media (max-width: 40.0625em) { .app-readable { max-width: 100%; } }
     #map-graph { height: 640px; border: 1px solid #b1b4b6; background: #fff; }
     .app-map-controls { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
     /* Dual keyline on the filter-chip colour dots: the dark inner border separates
@@ -352,7 +356,8 @@
       <!-- ============================= MAP VIEW ============================= -->
       <section id="view-map" class="app-hidden">
         <h1 class="govuk-heading-xl">Map view</h1>
-        <p class="govuk-body">See how a group of GOV.UK pages link to each other. It reads the links written into each page and draws them as a map, so you can see how the pages connect and which shared pages they send users to.</p>
+        <div class="app-readable">
+        <p class="govuk-body">Map the content ecosystem around a service. Starting from a page you choose, it follows the links written into each GOV.UK page and draws them as a map, so you can see how the content connects and which shared pages it sends people to.</p>
 
         <!-- Trace a service from one or more start pages -->
         <div id="map-seed-mode">
@@ -390,6 +395,7 @@
             </li>
           </ul>
         </div>
+        </div><!-- /.app-readable -->
 
         <!-- Results -->
         <div id="map-results" class="app-hidden">
