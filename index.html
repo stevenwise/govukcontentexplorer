@@ -130,6 +130,13 @@
     /* Match the "Using the map" bullets to the key text size. */
     .app-map-using { font-size: 0.875rem; }
     .app-map-using li { margin-bottom: 4px; }
+    /* Two columns with a grey keyline down the middle; stacks on narrow screens. */
+    .app-map-caption-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+    .app-map-caption-cols > .app-map-caption-col + .app-map-caption-col { border-left: 1px solid #b1b4b6; padding-left: 32px; }
+    @media (max-width: 40.0625em) {
+      .app-map-caption-cols { grid-template-columns: 1fr; gap: 16px; }
+      .app-map-caption-cols > .app-map-caption-col + .app-map-caption-col { border-left: 0; padding-left: 0; border-top: 1px solid #b1b4b6; padding-top: 16px; }
+    }
     #map-progress { margin-top: 10px; }
     /* One aligned row of view/layout/export controls; two matching menu-selects. */
     .app-map-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

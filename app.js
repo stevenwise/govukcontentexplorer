@@ -2211,12 +2211,19 @@ function mapRenderKey(ctx) {
     return `<div class="app-map-key-row"><span class="app-map-key-marker">${mapKeyMarker(r.marker, ctx.pageColour)}</span>` +
       `<span class="app-map-key-text"><strong>${esc(r.term)}:</strong> ${desc}</span></div>`;
   }).join('');
+  const heading = (t) => `<h3 class="govuk-heading-s govuk-!-margin-bottom-2 govuk-!-margin-top-0">${t}</h3>`;
   box.innerHTML =
-    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Reading the map</h3>` +
-    `<div class="app-map-key">${rows}</div>` +
-    `<h3 class="govuk-heading-s govuk-!-margin-bottom-1 govuk-!-margin-top-3">Using the map</h3>` +
-    `<ul class="govuk-list govuk-list--bullet app-map-using app-muted govuk-!-margin-bottom-2">` +
-    MAP_USING.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>';
+    `<div class="app-map-caption-cols">` +
+      `<div class="app-map-caption-col">` +
+        heading('Reading the map') +
+        `<div class="app-map-key">${rows}</div>` +
+      `</div>` +
+      `<div class="app-map-caption-col">` +
+        heading('Using the map') +
+        `<ul class="govuk-list govuk-list--bullet app-map-using app-muted govuk-!-margin-bottom-0">` +
+        MAP_USING.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>' +
+      `</div>` +
+    `</div>`;
 }
 
 // Build the whole export as one SVG: the graph, then the combined key (the same
