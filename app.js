@@ -1857,11 +1857,15 @@ function mapRender() {
 
   const preset = map.presetPositions; // saved arrangement, or null for auto-layout
   const withPos = (data) => (preset && preset[data.id]) ? { data, position: { x: preset[data.id].x, y: preset[data.id].y } } : { data };
+  const core = g.core || new Set();
+  // Which guide boxes belong to the start-page core group, so the box itself can
+  // carry the emphasis (a solid blue container) instead of a heavy ring per node.
+  const coreGuides = new Set();
+  visiblePages.forEach(k => { const p = g.inset.get(k); if (core.has(k) && p.guide) coreGuides.add(p.guide); });
   const els = [];
   groupTitle.forEach((title, guide) => {
-    els.push({ data: { id: 'grp:' + guide, label: title, kind: 'group' } });
+    els.push({ data: { id: 'grp:' + guide, label: title, kind: 'group', core: coreGuides.has(guide) ? 1 : 0 } });
   });
-  const core = g.core || new Set();
   visiblePages.forEach(k => {
     const p = g.inset.get(k);
     const grouped = p.guide && groupTitle.has(p.guide);
@@ -1906,9 +1910,9 @@ function mapRender() {
         'text-margin-y': 2, 'min-zoomed-font-size': 8, 'text-opacity': 0,
       } },
       { selector: 'node[major = 1]', style: { 'text-opacity': 1 } },
-      // The start-page core group: a dark ring makes it prominent.
+      // The start-page core group: the box carries the emphasis, so the nodes
+      // just keep their labels on and stay larger (set in data), no heavy ring.
       { selector: 'node[core = 1]', style: {
-        'border-width': 4, 'border-color': '#0b0c0c', 'border-opacity': 0.85,
         'text-opacity': 1, 'font-weight': 'bold',
       } },
       { selector: 'node[kind="hub"]', style: {
@@ -1942,8 +1946,15 @@ function mapRender() {
         'text-background-color': '#ffffff', 'text-background-opacity': 1,
         'text-background-padding': 3, 'text-background-shape': 'round-rectangle',
       } },
+      // The start-page core group's box: a solid blue keyline and a faint blue
+      // wash mark it as the service being traced. Other guides stay dashed grey.
+      { selector: ':parent[core = 1]', style: {
+        'border-style': 'solid', 'border-width': 2, 'border-color': '#1d70b8',
+        'background-color': '#1d70b8', 'background-opacity': 0.1, 'color': '#1d70b8',
+      } },
       // Selecting a box would draw a distracting border; keep it looking the same.
       { selector: ':parent:selected', style: { 'border-width': 1, 'border-color': '#8f9296', 'border-style': 'dashed' } },
+      { selector: ':parent[core = 1]:selected', style: { 'border-width': 2, 'border-color': '#1d70b8', 'border-style': 'solid' } },
     ],
   });
 
@@ -2119,7 +2130,7 @@ const MAP_CAPTION = [
   { heading: 'Reading the map', items: [
     'Each circle is a page in your set. Its colour shows the content type and its size shows how many other pages link to it.',
     'Squares are shared destinations that sit outside your set.',
-    'A dashed box groups the parts of one guide.',
+    'A box groups the parts of one guide. The solid blue box is your start guide, the service you are tracing. Dashed grey boxes are other guides.',
     'A solid line is a link in the page body. A dashed line is a related content link.',
   ] },
   { heading: 'Using the map', screenOnly: true, items: [
