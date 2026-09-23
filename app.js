@@ -1367,6 +1367,7 @@ const map = {
   seedMeta: null,     // {seedCount, hops, reached}
   seedKeys: null,     // the start-page keys, for the core group
   sharedView: null,   // a view-link arrangement to apply on the next build, or null
+  view: null,         // the current on-screen view after filters {pages, hubs, edges}, for exports
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
   presetPositions: null, // saved manual arrangement (id -> {x,y}), or null for auto-layout
   fullscreen: false,
@@ -1906,10 +1907,14 @@ function mapRender() {
   });
 
   const present = new Set(els.map(e => e.data.id));
+  const drawnEdges = [];
   shownEdges.forEach((e, i) => {
     if (!present.has(e.src) || !present.has(e.tgt)) return;
     els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt, kind: e.kind || 'body' } });
+    drawnEdges.push(e);
   });
+  // The current on-screen view (after all filters), so exports can match the map.
+  map.view = { pages: new Set(visiblePages), hubs: new Set(liveHubs), edges: drawnEdges };
 
   if (map.cy) { map.cy.destroy(); map.cy = null; }
   map.cy = cytoscape({
@@ -2303,12 +2308,14 @@ function mapExportPng() {
 function mapExportCsv() {
   if (!map.graph) return;
   const g = map.graph;
+  // Export the current on-screen view (after filters), matching the SVG/PNG.
+  const view = map.view || { pages: new Set(g.inset.keys()), hubs: g.hubs, edges: g.edges };
   const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
   const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
 
   const outAdj = new Map(), inAdj = new Map();
   const push = (m, key, val) => { if (!m.has(key)) m.set(key, []); m.get(key).push(val); };
-  g.edges.forEach(e => { push(outAdj, e.src, e); push(inAdj, e.tgt, e); });
+  view.edges.forEach(e => { push(outAdj, e.src, e); push(inAdj, e.tgt, e); });
 
   // A connection rendered as "Title [content type] (related)" where relevant.
   const conn = (k, kind) => `${nodeLabel(k)} [${nodeType(k)}]${kind === 'related' ? ' (related)' : ''}`;
@@ -2334,8 +2341,8 @@ function mapExportCsv() {
     };
   };
 
-  const pageRows = [...g.inset.keys()].map(k => rowFor(k, 'Page in set'));
-  const hubRows = [...g.hubs].map(k => rowFor(k, 'Shared destination'));
+  const pageRows = [...view.pages].map(k => rowFor(k, 'Page in set'));
+  const hubRows = [...view.hubs].map(k => rowFor(k, 'Shared destination'));
   // Most-linked-to first within each group: surfaces the hubs of your estate.
   const byInThenTitle = (a, b) => b.links_in_count - a.links_in_count || a.title.localeCompare(b.title);
   pageRows.sort(byInThenTitle);
@@ -2357,14 +2364,16 @@ function mapExportCsv() {
 function mapExportEdgesCsv() {
   if (!map.graph) return;
   const g = map.graph;
+  // Export the current on-screen view (after filters), matching the SVG/PNG.
+  const view = map.view || { pages: new Set(g.inset.keys()), hubs: g.hubs, edges: g.edges };
   const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
   const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
   const header = ['source', 'source_path', 'source_type', 'target', 'target_path', 'target_type',
                   'target_category', 'link_kind'];
   const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
   const lines = [header.join(',')];
-  g.edges.forEach(e => {
-    const targetInSet = g.inset.has(e.tgt);
+  view.edges.forEach(e => {
+    const targetInSet = view.pages.has(e.tgt);
     lines.push([
       nodeLabel(e.src), e.src, nodeType(e.src),
       nodeLabel(e.tgt), e.tgt, nodeType(e.tgt),
