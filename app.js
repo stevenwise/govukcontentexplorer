@@ -1888,9 +1888,19 @@ function mapRender() {
   // Edges among visible pages, plus edges to hubs when hubs are shown.
   const shownEdges = g.edges.filter(e =>
     visiblePages.has(e.src) && (visiblePages.has(e.tgt) || (showHubs && g.hubs.has(e.tgt))));
-  // Keep only hubs actually reached by a surviving edge (no floating squares).
+  // Show a shared destination only when 2+ of the pages CURRENTLY VISIBLE link to
+  // it, so the squares always match the legend under any filter (a destination
+  // reached only via hidden pages, e.g. Welsh or a filtered-out type, drops out).
   const liveHubs = new Set();
-  if (showHubs) shownEdges.forEach(e => { if (g.hubs.has(e.tgt)) liveHubs.add(e.tgt); });
+  if (showHubs) {
+    const hubSources = new Map(); // hub key -> set of distinct visible source pages
+    shownEdges.forEach(e => {
+      if (!g.hubs.has(e.tgt)) return;
+      if (!hubSources.has(e.tgt)) hubSources.set(e.tgt, new Set());
+      hubSources.get(e.tgt).add(e.src);
+    });
+    hubSources.forEach((srcs, k) => { if (srcs.size >= MAP_HUB_MIN) liveHubs.add(k); });
+  }
   liveHubs.forEach(k => {
     els.push(withPos({ id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k), major: 1 }));
   });
