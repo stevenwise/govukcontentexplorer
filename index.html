@@ -155,9 +155,14 @@
     .app-map-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .app-map-actions .govuk-button { height: 40px; }
     .app-menu-select { width: auto; min-width: 130px; height: 40px; }
-    /* Action confirmation sits below the menus (so they never shift) with a
-       reserved line so the map does not jump. Dark text for AA contrast. */
-    .app-map-action-status { min-height: 1.25rem; margin: 6px 0 0; text-align: right; font-size: 0.875rem; color: #0b0c0c; }
+    /* Stack the menu row and its confirmation. The column is content-width and
+       sits at the right (via the controls' space-between); the menus align to its
+       right, the message to its left, so the message lands directly under the
+       Layout menu without shifting anything. Reserved line stops the map jumping. */
+    .app-map-actions-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .app-map-action-status { align-self: flex-start; text-align: left; min-height: 1.25rem; font-size: 0.875rem; color: #0b0c0c; }
+    /* Keep each map control label on one line; the items wrap as a group instead. */
+    .app-map-controls .govuk-checkboxes__label { white-space: nowrap; }
     /* Full-screen graph: the results panel fills the viewport. */
     #map-panel.app-map-fullscreen { position: fixed; inset: 0; z-index: 1000; margin: 0; border: 0; background: #ffffff; overflow-y: auto; padding: 16px 20px; }
     #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 210px); }
@@ -432,7 +437,8 @@
                   <label class="govuk-label govuk-checkboxes__label" for="map-show-labels">Show all labels</label>
                 </div>
               </div>
-              <div class="app-map-actions">
+              <div class="app-map-actions-col">
+                <div class="app-map-actions">
                 <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-layout-menu" aria-label="Layout actions">
                   <option value="">Layout</option>
                   <option value="relayout">Re-run layout</option>
@@ -448,9 +454,10 @@
                   <option value="csv-connections">Connections list (CSV)</option>
                 </select>
                 <input type="file" id="map-load-layout-file" accept="application/json,.json" style="display:none">
+                </div>
+                <div id="map-action-status" class="app-map-action-status" aria-live="polite"></div>
               </div>
             </div>
-            <div id="map-action-status" class="app-map-action-status" aria-live="polite"></div>
 
             <!-- Content-type filter chips -->
             <div id="map-type-chips" class="app-chips"></div>

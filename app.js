@@ -2508,7 +2508,7 @@ async function mapCopyViewLink() {
   catch (e) { mapFlashStatus('Could not build the link.'); return; }
   try {
     await navigator.clipboard.writeText(url);
-    mapFlashStatus('View link copied. Paste it to share this exact view.');
+    mapFlashStatus('View link copied to clipboard.');
   } catch (e) {
     // Clipboard blocked or no user gesture: show the link for manual copying.
     prompt('Copy this link to share the exact view:', url);
