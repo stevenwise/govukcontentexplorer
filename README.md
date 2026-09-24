@@ -1,112 +1,64 @@
-# GOV.UK content explorer (unofficial)
+# GOV.UK Content Explorer (unofficial)
 
-A small web app that puts a visual front end on the two public GOV.UK APIs, so a
-content or service designer can explore a department's guidance estate without
-writing code.
+A small web app that puts a visual front end on the public GOV.UK APIs, so a
+content or service designer can explore how government guidance is published and
+how it connects, without writing any code. It is read-only and live: nothing is
+stored, and every view is built fresh from the public APIs.
 
-**This is an unofficial personal tool. It is not an HMCTS, MoJ or GDS service.**
-It is read-only against the public GOV.UK APIs.
+> **Unofficial personal tool.** It is not an HMCTS, MoJ or GDS service. It reads
+> the public GOV.UK APIs only.
 
-Two views:
+Live: **https://govukcontentexplorer.netlify.app**
 
-- **Page view** — paste any GOV.UK URL or path and see editorial vs policy
-  ownership, the pages hidden inside a publication, staleness, whether a Welsh
-  version exists (and whether it is accessible), and what the page links out to.
-- **Estate view** — pick an organisation and see what it publishes, broken down
-  by content type and age. An aggregate screen first (total items, per-type bar
-  chart, live projected row count) so you can size a pull before making it, then
-  results: summary cards, doughnut + year-of-last-update charts, and a sortable,
-  filterable table with amber/red staleness tinting and CSV export.
+## What you can do
 
-## The CORS finding (Phase 0)
+Three views:
 
-Whether this needed a backend came down to one question: do the GOV.UK APIs allow
-cross-origin browser requests? Tested with a real cross-origin `fetch()`, the
-answer splits by endpoint:
+- **Page view** — paste any GOV.UK URL or path and see who owns it (editorial vs
+  policy), the pages hidden inside a publication, how out of date it is, whether
+  there is an accessible Welsh version, and what the page links out to.
 
-| Endpoint | `Access-Control-Allow-Origin` | In-browser |
-|---|---|---|
-| `search.json` | `*` | works — called direct from the browser |
-| `content/<path>` | `*` | works — called direct from the browser |
-| `organisations` | **absent** | **blocked** — proxied by a Netlify Function |
+- **Estate view** — pick an organisation and see everything it publishes, broken
+  down by content type and age: summary cards, charts, and a sortable, filterable
+  table with staleness highlighting and CSV export. An overview screen comes first
+  so you can size a pull before you make it.
 
-So the app is a static site. Only `/api/organisations` (which populates the org
-picker in Estate view) needs a server, and that is the single small Netlify
-Function in `netlify/functions/organisations.js`. Everything else runs in the
-browser.
+- **Content ecosystem map** — trace a service from a starting page and see it
+  drawn as a map. It follows the links written into each page to show how the
+  content connects, groups the parts of a guide together, highlights the service
+  you are tracing, and marks the shared pages that several parts send people to.
+  You can filter by content type or language, rearrange and save the layout, share
+  an exact view by link, and export to image (SVG or PNG) or spreadsheet (CSV).
 
-## Running it
+## How it works (in brief)
 
-### Locally
+- It reads the two public GOV.UK APIs live in the browser: the **Search API** (to
+  list what an organisation publishes) and the **Content API** (to read a page,
+  the pages inside it, its ownership, dates and links). There is no database and
+  nothing is saved.
 
-Page view needs nothing but a static server (it calls the CORS-enabled endpoints
-direct):
+- The map is drawn with **Cytoscape.js** using the **fCoSE** force-directed layout
+  engine, followed by a tidy pass that packs each guide into a neat grid and
+  frames the view on the service you are tracing, so the map reads clearly instead
+  of as a tangle of lines.
+
+- It runs as a static site. One small serverless function fetches the list of
+  organisations (the only piece the browser cannot request directly).
+
+## Running it locally
+
+Most of the app is a static site, so a plain web server is enough:
 
 ```bash
 python3 -m http.server 8123
 ```
 
-Then open http://localhost:8123.
+Then open http://localhost:8123. The organisation picker in Estate view uses the
+small serverless function; if you need that part locally, run `netlify dev` with a
+`CONTACT_EMAIL` set (GOV.UK asks automated clients to identify themselves).
 
-Estate view (next phase) uses the organisations Function, which needs the Netlify
-CLI so the function runs locally:
+---
 
-```bash
-export CONTACT_EMAIL="you@example.com"
-netlify dev
-```
-
-### Deploying to Netlify
-
-1. Push this folder to Netlify (drag-and-drop or connect the repo). `netlify.toml`
-   already sets the publish directory and functions directory.
-2. **Set the `CONTACT_EMAIL` environment variable** — see below. Without it the
-   organisations Function fails loudly and returns a clear 500.
-3. **Password protection**: Site configuration → Access & security → Visitor
-   access → set a site password (Netlify Pro feature). Nothing to configure in
-   code.
-
-### `CONTACT_EMAIL` (required for the Function)
-
-GOV.UK asks automated clients to identify themselves. The Function's outbound
-`User-Agent` therefore carries a real contact email, read from the
-**`CONTACT_EMAIL`** environment variable — never hardcoded — so GOV.UK can reach
-the operator if the traffic misbehaves. If it is not set, the Function logs a
-fatal error and returns HTTP 500 with an explanatory message rather than sending
-anonymous traffic. Set it in Netlify → Site configuration → Environment variables
-(and in your shell for `netlify dev`).
-
-## Three API traps that would otherwise cost you an afternoon
-
-1. **The two APIs are inconsistent by design.** In the *search* API, `document_type`
-   is always `"edition"` — use the `format` field for content type. In the
-   *content* API there is no `format` field — use `document_type`. They disagree on
-   purpose.
-
-2. **`withdrawn_notice` is `{}` when a page is *not* withdrawn**, not `null` or
-   absent. Test it for emptiness (`Object.keys(...).length`), or every page shows
-   as withdrawn.
-
-3. **Welsh versions hide in three places, and `available_translations` misses most
-   of them.** Check all three: (a) `links.available_translations` for a `cy`
-   locale; (b) `details.attachments` for a filename ending `-cym` or `-w`; (c) a
-   body link whose visible text mentions "Welsh" / "Cymraeg". A page can have both
-   a proper translation and an inaccessible PDF — the accessible route wins.
-
-(Related: `links.children` is richer than `details.attachments` for the HTML pages
-nested inside a publication, and multi-part guides hold their content in
-`details.parts[].body`, not `details.body` — so concatenate both when counting
-words or extracting links.)
-
-## Files
-
-```
-index.html                        the app (GOV.UK Frontend + Chart.js via CDN)
-app.js                            vanilla JS: view switching + Page view
-netlify/functions/organisations.js  proxy for the one CORS-blocked endpoint
-netlify.toml                      Netlify config (publish dir, function, redirect)
-```
-
-We deliberately do **not** load the GDS Transport font — it is licensed for real
-government services only, and this is not one. The Arial fallback is the correct
-choice and still reads as GOV.UK.
+A note on the look: it deliberately does not use the official GDS Transport font,
+which is licensed for real government services only. The Arial fallback still reads
+as GOV.UK and keeps the tool clearly unofficial.
