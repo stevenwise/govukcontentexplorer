@@ -38,6 +38,7 @@ function wordCount(text) {
 // -> "Employment tribunal decision". The raw slug stays the value/CSV field.
 function formatLabel(slug) {
   if (!slug) return '';
+  if (slug === 'html_publication') return 'HTML publication';
   const s = String(slug).replace(/_/g, ' ');
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
@@ -1463,6 +1464,22 @@ function mapCuratedLinks(content) {
   return set;
 }
 
+// A publication's HTML attachments: separate pages with their own URLs that hold
+// the publication's actual content (the Content API does not inline their
+// bodies). details.attachments gives display order; links.children is a fallback.
+function mapHtmlAttachmentPaths(d) {
+  if (!d) return [];
+  const det = d.details || {};
+  if (Array.isArray(det.parts) && det.parts.length) return []; // a guide, not a publication
+  const fromAtts = (Array.isArray(det.attachments) ? det.attachments : [])
+    .filter(a => a && a.attachment_type === 'html' && a.url)
+    .map(a => keyPath(toInternalPathOrNull(a.url) || ''));
+  const fromKids = ((d.links && d.links.children) || [])
+    .filter(c => c && c.document_type === 'html_publication' && c.base_path)
+    .map(c => keyPath(c.base_path));
+  return [...new Set([...fromAtts, ...fromKids])].filter(Boolean);
+}
+
 // Body links plus curated related links: the full set of pages a page points to.
 function mapAllLinks(content) {
   const s = mapExtractLinks(content);
@@ -1505,6 +1522,7 @@ async function mapSeedBuild() {
   const fetchedKeys = new Set();
   const contentByKey = new Map();
   const pages = [];
+  const pageByKey = new Map();
   let fetchedCount = 0;
   const onProgress = () => {
     fetchedCount++;
@@ -1522,8 +1540,10 @@ async function mapSeedBuild() {
       batch.forEach((k, i) => {
         const d = contents[i];
         contentByKey.set(k, d);
-        pages.push({ path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '',
-                     welsh: !!(d && d.locale === 'cy'), content: d });
+        const page = { path: k, title: (d && d.title) || mapHubLabel(k), format: (d && d.document_type) || '',
+                       welsh: !!(d && d.locale === 'cy'), content: d };
+        pages.push(page);
+        pageByKey.set(k, page);
         // A multi-part guide arrives whole (every part is in details.parts), so
         // mark its root and all its part URLs as covered: they are expanded into
         // nodes at build time and must not be fetched again as separate pages.
@@ -1533,9 +1553,37 @@ async function mapSeedBuild() {
           d.details.parts.forEach(pt => { if (pt && pt.slug) discovered.add(keyPath(canon + '/' + pt.slug)); });
         }
       });
+      // A publication's content lives in its HTML attachments, so fetch them in
+      // the same hop, as parts of the publication (not an extra hop). They count
+      // toward the page cap, and are marked discovered so they are not re-queued.
+      const attachFor = new Map(); // publication key -> its attachment keys
+      const attachQueue = [];
+      batch.forEach(k => {
+        const paths = mapHtmlAttachmentPaths(contentByKey.get(k));
+        if (!paths.length) return;
+        attachFor.set(k, paths);
+        paths.forEach(a => {
+          discovered.add(a);
+          if (!fetchedKeys.has(a) && !attachQueue.includes(a)) attachQueue.push(a);
+        });
+      });
+      const attachBatch = attachQueue.slice(0, Math.max(0, cap - fetchedKeys.size));
+      if (attachBatch.length) {
+        attachBatch.forEach(a => fetchedKeys.add(a));
+        const attached = await mapFetchContents(attachBatch, onProgress);
+        attachBatch.forEach((a, i) => contentByKey.set(a, attached[i]));
+      }
+      attachFor.forEach((paths, k) => {
+        const page = pageByKey.get(k);
+        if (page) page.attachments = paths.filter(a => contentByKey.get(a)).map(a => ({ key: a, content: contentByKey.get(a) }));
+      });
+
       if (depth + 1 > maxHops) break; // fetched the last hop's pages; do not expand further
       const next = [];
-      batch.forEach(k => {
+      // Follow links from each page and from its HTML attachments (same hop).
+      const sources = [];
+      batch.forEach(k => { sources.push(k); (attachFor.get(k) || []).forEach(a => sources.push(a)); });
+      sources.forEach(k => {
         mapAllLinks(contentByKey.get(k)).forEach(t => {
           if (!t || discovered.has(t)) return;
           if (MAP_LINK_BLOCK.some(re => re.test(t))) return;
@@ -1636,6 +1684,37 @@ function mapComputeUnits(pages) {
           links,
           guide: canon,          // which guide this part belongs to
           guideTitle: p.title,   // the guide's own title, for the group box label
+        });
+      });
+    } else if (p.attachments && p.attachments.length) {
+      // A publication with HTML attachments: the publication page plus one unit
+      // per attachment, grouped exactly like a guide's parts (same box, same
+      // start-group rules). An attachment already seen as a standalone page is
+      // replaced here so it joins its publication's group.
+      if (doneGuides.has(canon)) return;
+      doneGuides.add(canon);
+      const linksOf = (content) => {
+        const links = new Map();
+        if (content) {
+          mapExtractLinks(content).forEach(k => links.set(k, 'body'));
+          mapCuratedLinks(content).forEach(k => { if (!links.has(k)) links.set(k, 'related'); });
+        }
+        return links;
+      };
+      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, updated, owner,
+                         links: linksOf(d), guide: canon, guideTitle: p.title });
+      p.attachments.forEach(a => {
+        const ad = a.content;
+        units.set(a.key, {
+          key: a.key,
+          title: (ad && ad.title) || mapHubLabel(a.key),
+          format: (ad && ad.document_type) || 'html_publication',
+          welsh: !!(ad && ad.locale === 'cy'),
+          updated: mapContentUpdated(ad) || updated,
+          owner: mapContentOwner(ad) || owner,
+          links: linksOf(ad),
+          guide: canon,
+          guideTitle: p.title,
         });
       });
     } else if (!units.has(canon)) {
@@ -2171,8 +2250,8 @@ const MAP_KEY = [
   { marker: 'blue-box', term: 'Start guide',
     desc: 'the service you are tracing, from your start page.',
     when: c => c.hasStartBox },
-  { marker: 'grey-box', term: 'Other guide',
-    desc: 'the parts of another multi-part guide, grouped together.',
+  { marker: 'grey-box', term: 'Other guide or publication',
+    desc: 'the parts of another multi-part guide, or a publication and its HTML pages, grouped together.',
     when: c => c.hasOtherBox },
   { marker: 'square', term: 'Shared destination',
     desc: 'a page outside your set that two or more of your pages link to.',
