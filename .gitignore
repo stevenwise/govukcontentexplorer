@@ -10,3 +10,10 @@ node_modules
 
 # OS cruft
 .DS_Store
+
+# Manual Netlify deploy artifacts (the publish is folder-uploaded, not zipped here)
+deploy-*.zip
+
+# Guard: the separate CMC-ecosystem project lives at ~/CMC-ecosystem, not inside
+# this repo. If a clone lands here again it would bloat the deploy, so ignore it.
+/CMC-ecosystem/
