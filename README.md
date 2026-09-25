@@ -27,8 +27,11 @@ Three views:
   drawn as a map. It follows the links written into each page to show how the
   content connects, groups the parts of a guide together, highlights the service
   you are tracing, and marks the shared pages that several parts send people to.
-  You can filter by content type or language, rearrange and save the layout, share
-  an exact view by link, and export to image (SVG or PNG) or spreadsheet (CSV).
+  Publications are opened up into the HTML pages inside them, and you can switch
+  on external sites to see where the service signposts people outside GOV.UK,
+  such as Citizens Advice. You can filter by content type or language, rearrange
+  and save the layout, share an exact view by link, and export to image (SVG or
+  PNG) or spreadsheet (CSV).
 
 ## How it works (in brief)
 

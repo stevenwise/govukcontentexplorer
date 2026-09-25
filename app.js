@@ -1480,6 +1480,67 @@ function mapHtmlAttachmentPaths(d) {
   return [...new Set([...fromAtts, ...fromKids])].filter(Boolean);
 }
 
+/* ----- Map: external sites (links that leave GOV.UK) -----
+ * One node per site (host), never crawled. Classified by a single objective
+ * rule, government or not, rather than a hand-kept list of "support agencies".
+ * Friendly names are presentation only.
+ */
+const MAP_EXT_NOISE = [/(^|\.)adobe\.com$/, /^assets\.publishing\.service\.gov\.uk$/, /^assets\.digital\.cabinet-office\.gov\.uk$/];
+const MAP_EXT_NAMES = {
+  'citizensadvice.org.uk': 'Citizens Advice',
+  'advicenow.org.uk': 'Advicenow',
+  'civilmediation.org': 'Civil Mediation Council',
+  'lawworks.org.uk': 'LawWorks',
+  'supportthroughcourt.org': 'Support Through Court',
+  'rcjadvice.org.uk': 'RCJ Advice',
+  'freelegalanswers.org.uk': 'Free Legal Answers',
+  'barcouncil.org.uk': 'Bar Council',
+  'solicitors.lawsociety.org.uk': 'Law Society: find a solicitor',
+  'moneyadviceservice.org.uk': 'Money Advice Service',
+  'moneyhelper.org.uk': 'MoneyHelper',
+  'nidirect.gov.uk': 'nidirect',
+  'scotcourts.gov.uk': 'Scottish Courts and Tribunals',
+  'justice-ni.gov.uk': 'Department of Justice NI',
+  'find-court-tribunal.service.gov.uk': 'Find a court or tribunal',
+  'helpwithcourtfees.service.gov.uk': 'Help with fees',
+  'legislation.gov.uk': 'legislation.gov.uk',
+};
+const MAP_EXT_CATS = {
+  government: { label: 'Government site', color: '#505a5f' },
+  organisation: { label: 'Other organisation', color: '#6f72af' },
+};
+
+// The site (host) an external link points to, or null for GOV.UK, non-web and noise links.
+function mapExternalHost(href) {
+  const h = (href || '').trim();
+  if (!/^(https?:)?\/\//i.test(h)) return null;
+  if (toInternalPathOrNull(h)) return null; // www.gov.uk: an internal page
+  const host = (externalDomain(h) || '').toLowerCase();
+  if (!host || MAP_EXT_NOISE.some(re => re.test(host))) return null;
+  return host;
+}
+function mapExternalFromHtml(html) {
+  const out = new Map(); // host -> Set of URLs
+  const re = /<a[^>]*href="([^"]+)"[^>]*>/gi;
+  let m;
+  while ((m = re.exec(html || '')) !== null) {
+    const host = mapExternalHost(m[1]);
+    if (!host) continue;
+    if (!out.has(host)) out.set(host, new Set());
+    out.get(host).add(m[1].trim().split('#')[0]);
+  }
+  return out;
+}
+function mapExternalOf(content) {
+  if (!content) return new Map();
+  const det = content.details || {};
+  const parts = Array.isArray(det.parts) ? det.parts : [];
+  return mapExternalFromHtml((det.body || '') + parts.map(p => p.body || '').join(' '));
+}
+function mapExternalCategory(host) {
+  return (/(^|\.)gov\.(uk|scot|wales)$/.test(host) || host === 'mygov.scot') ? 'government' : 'organisation';
+}
+
 // Body links plus curated related links: the full set of pages a page points to.
 function mapAllLinks(content) {
   const s = mapExtractLinks(content);
@@ -1682,6 +1743,7 @@ function mapComputeUnits(pages) {
           welsh: !!(d && d.locale === 'cy'),
           updated, owner,
           links,
+          ext: mapExternalFromHtml(pt.body || ''), // external sites this part links to
           guide: canon,          // which guide this part belongs to
           guideTitle: p.title,   // the guide's own title, for the group box label
         });
@@ -1702,7 +1764,7 @@ function mapComputeUnits(pages) {
         return links;
       };
       units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, updated, owner,
-                         links: linksOf(d), guide: canon, guideTitle: p.title });
+                         links: linksOf(d), ext: mapExternalOf(d), guide: canon, guideTitle: p.title });
       p.attachments.forEach(a => {
         const ad = a.content;
         units.set(a.key, {
@@ -1713,6 +1775,7 @@ function mapComputeUnits(pages) {
           updated: mapContentUpdated(ad) || updated,
           owner: mapContentOwner(ad) || owner,
           links: linksOf(ad),
+          ext: mapExternalOf(ad),
           guide: canon,
           guideTitle: p.title,
         });
@@ -1723,7 +1786,8 @@ function mapComputeUnits(pages) {
         mapExtractLinks(d).forEach(k => links.set(k, 'body'));
         mapCuratedLinks(d).forEach(k => { if (!links.has(k)) links.set(k, 'related'); });
       }
-      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, updated, owner, links });
+      units.set(canon, { key: canon, title: p.title, format: p.format, welsh: p.welsh, updated, owner, links,
+                         ext: mapExternalOf(d) });
     }
   });
   return { units, alias };
@@ -1788,7 +1852,25 @@ function mapComputeGraph(pages) {
     core = seedUnits;
   }
 
-  map.graph = { inset, hubs, edges, indeg, deg, core, pages: [...inset.values()] };
+  // External sites: one node per host, with an edge from every page linking to
+  // it. Kept apart from edges/hubs so they never change shared destinations,
+  // in-degree sizing or the unlinked-page count.
+  const externals = new Map(); // 'ext:<host>' -> {key, host, name, category, urls:Set, sources:Set}
+  const extEdges = [];
+  inset.forEach(u => {
+    (u.ext || new Map()).forEach((urls, host) => {
+      const key = 'ext:' + host;
+      if (!externals.has(key)) {
+        externals.set(key, { key, host, name: MAP_EXT_NAMES[host] || host,
+                             category: mapExternalCategory(host), urls: new Set(), sources: new Set() });
+      }
+      const x = externals.get(key);
+      urls.forEach(url => x.urls.add(url));
+      if (!x.sources.has(u.key)) { x.sources.add(u.key); extEdges.push({ src: u.key, tgt: key, kind: 'body' }); }
+    });
+  });
+
+  map.graph = { inset, hubs, edges, indeg, deg, core, externals, extEdges, pages: [...inset.values()] };
   map.visibleTypes = new Set(); // a fresh build shows all content types
   const withinCount = edges.filter(e => inset.has(e.tgt)).length;
   const orphanCount = [...inset.keys()].filter(k => !deg.get(k)).length;
@@ -1890,6 +1972,7 @@ function mapFocusNode(n) {
 }
 
 function mapOpenNode(n) {
+  if (n.data('kind') === 'external') { window.open(n.data('url'), '_blank', 'noopener'); return; }
   const p = n.data('path');
   showView('page');
   el('page-url').value = GOVUK + '/' + String(p).replace(/^\/+/, '');
@@ -1901,10 +1984,14 @@ function mapRender() {
   const g = map.graph;
   if (!g) return;
   const showHubs = el('map-show-hubs').checked;
+  const showExt = el('map-show-external').checked;
   const showOrphans = el('map-show-orphans').checked;
   const showWelsh = el('map-show-welsh').checked;
   const showAllLabels = el('map-show-labels').checked;
   const typeFilter = map.visibleTypes;
+  // Content-type chips narrow pages; external-site chips narrow external sites.
+  const pageTypes = [...typeFilter].filter(t => !t.startsWith('external:'));
+  const extTypes = [...typeFilter].filter(t => t.startsWith('external:'));
   const cm = mapFormatColours();
   const indegVals = [...g.indeg.values()];
   const maxIndeg = indegVals.length ? Math.max(1, ...indegVals) : 1;
@@ -1921,7 +2008,7 @@ function mapRender() {
   const visiblePages = new Set();
   g.inset.forEach((p, k) => {
     if (!showOrphans && !g.deg.get(k)) return;
-    if (typeFilter.size && !typeFilter.has(p.format)) return;
+    if (pageTypes.length && !pageTypes.includes(p.format)) return;
     if (!showWelsh && p.welsh) return;
     visiblePages.add(k);
   });
@@ -1985,6 +2072,23 @@ function mapRender() {
     els.push(withPos({ id: k, label: mapHubLabel(k), path: k, kind: 'hub', size: sizeFor(k), major: 1 }));
   });
 
+  // External sites linked from a visible page (the toggle is off by default).
+  const liveExt = new Map(); // ext key -> number of visible pages linking to it
+  if (showExt) {
+    g.extEdges.forEach(e => {
+      if (!visiblePages.has(e.src)) return;
+      const x = g.externals.get(e.tgt);
+      if (extTypes.length && !extTypes.includes('external:' + x.category)) return;
+      liveExt.set(e.tgt, (liveExt.get(e.tgt) || 0) + 1);
+    });
+  }
+  liveExt.forEach((n, k) => {
+    const x = g.externals.get(k);
+    els.push(withPos({ id: k, label: x.name, path: k, kind: 'external', category: x.category,
+                       color: MAP_EXT_CATS[x.category].color, url: [...x.urls][0],
+                       size: Math.round(24 + Math.min(n, 6) * 4), major: 1 }));
+  });
+
   const present = new Set(els.map(e => e.data.id));
   const drawnEdges = [];
   shownEdges.forEach((e, i) => {
@@ -1992,8 +2096,13 @@ function mapRender() {
     els.push({ data: { id: 'edge-' + i, source: e.src, target: e.tgt, kind: e.kind || 'body' } });
     drawnEdges.push(e);
   });
+  g.extEdges.forEach((e, i) => {
+    if (!liveExt.has(e.tgt) || !present.has(e.src)) return;
+    els.push({ data: { id: 'xedge-' + i, source: e.src, target: e.tgt, kind: 'external' } });
+    drawnEdges.push(e);
+  });
   // The current on-screen view (after all filters), so exports can match the map.
-  map.view = { pages: new Set(visiblePages), hubs: new Set(liveHubs), edges: drawnEdges };
+  map.view = { pages: new Set(visiblePages), hubs: new Set(liveHubs), externals: new Set(liveExt.keys()), edges: drawnEdges };
 
   if (map.cy) { map.cy.destroy(); map.cy = null; }
   map.cy = cytoscape({
@@ -2013,6 +2122,11 @@ function mapRender() {
       // just keep their labels on and stay larger (set in data), no heavy ring.
       { selector: 'node[core = 1]', style: {
         'text-opacity': 1, 'font-weight': 'bold',
+      } },
+      // External sites: a diamond, coloured government or other organisation.
+      { selector: 'node[kind="external"]', style: {
+        'shape': 'round-diamond', 'background-color': 'data(color)', 'border-width': 2,
+        'border-color': '#ffffff', 'font-weight': 'bold', 'text-opacity': 1,
       } },
       { selector: 'node[kind="hub"]', style: {
         'shape': 'round-rectangle', 'background-color': '#f3f2f1',
@@ -2118,6 +2232,7 @@ function mapRender() {
     hasStartBox: [...groupTitle.keys()].some(guide => coreGuides.has(guide)),
     hasOtherBox: [...groupTitle.keys()].some(guide => !coreGuides.has(guide)),
     hasHubs: liveHubs.size > 0,
+    hasExternal: liveExt.size > 0,
     hasRelated: shownEdges.some(e => e.kind === 'related'),
     singleType: presentTypes.length === 1 ? (formatLabel(presentTypes[0]) || 'Unknown') : null,
     pageColour: presentTypes.length === 1 ? (cm[presentTypes[0]] || '#1d70b8') : '#1d70b8',
@@ -2136,23 +2251,36 @@ function mapRenderTypeChips(cm) {
   const counts = {};
   map.graph.inset.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
   const types = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  if (types.length <= 1) { box.innerHTML = ''; return; } // nothing to filter by
-  const chip = (t, n) => {
+  const chip = (t, n, label, colour) => {
     const active = map.visibleTypes.has(t);
-    return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(t)}">
-      <span class="app-legend-swatch" style="background:${cm[t] || '#1d70b8'};width:12px;height:12px;margin-right:5px;"></span>${esc(formatLabel(t) || 'Unknown')} (${n.toLocaleString('en-GB')})</button>`;
+    return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(label)}">
+      <span class="app-legend-swatch" style="background:${colour};width:12px;height:12px;margin-right:5px;"></span>${esc(label)} (${n.toLocaleString('en-GB')})</button>`;
   };
-  let html = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>`;
-  // One-click shortcut to filter the map to guidance content types (like Estate view).
-  const presentGuidance = types.map(([t]) => t).filter(t => GUIDANCE_TYPES.includes(t));
-  if (presentGuidance.length) {
-    const allActive = map.visibleTypes.size === presentGuidance.length && presentGuidance.every(t => map.visibleTypes.has(t));
-    html += `<button type="button" class="app-chip app-chip--more${allActive ? ' app-chip--active' : ''}" data-type-guidance="1">Guidance types</button> `;
+  const rows = [];
+  if (types.length > 1) {
+    let row = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>`;
+    // One-click shortcut to filter the map to guidance content types (like Estate view).
+    const presentGuidance = types.map(([t]) => t).filter(t => GUIDANCE_TYPES.includes(t));
+    if (presentGuidance.length) {
+      const allActive = map.visibleTypes.size === presentGuidance.length && presentGuidance.every(t => map.visibleTypes.has(t));
+      row += `<button type="button" class="app-chip app-chip--more${allActive ? ' app-chip--active' : ''}" data-type-guidance="1">Guidance types</button> `;
+    }
+    row += types.map(([t, n]) => chip(t, n, formatLabel(t) || 'Unknown', cm[t] || '#1d70b8')).join(' ');
+    rows.push(row);
   }
-  html += types.map(([t, n]) => chip(t, n)).join(' ');
-  if (map.visibleTypes.size) html += ` <button type="button" class="app-chip app-chip--clear" data-type-clear="1">Clear</button>`;
-  html += `</div>`;
-  box.innerHTML = html;
+  // External sites (only while "Show external sites" is on): filter by category.
+  if (el('map-show-external').checked && map.graph.externals && map.graph.externals.size) {
+    const extCounts = {};
+    map.graph.externals.forEach(x => { extCounts[x.category] = (extCounts[x.category] || 0) + 1; });
+    const cats = Object.keys(MAP_EXT_CATS).filter(c => extCounts[c]);
+    if (cats.length) {
+      rows.push(`<div class="app-chip-row"><span class="app-chip-label">External sites</span>` +
+        cats.map(c => chip('external:' + c, extCounts[c], MAP_EXT_CATS[c].label, MAP_EXT_CATS[c].color)).join(' '));
+    }
+  }
+  if (!rows.length) { box.innerHTML = ''; return; }
+  if (map.visibleTypes.size) rows[rows.length - 1] += ` <button type="button" class="app-chip app-chip--clear" data-type-clear="1">Clear</button>`;
+  box.innerHTML = rows.map(r => r + `</div>`).join('');
 }
 
 /* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
@@ -2187,6 +2315,8 @@ function mapKeyMarkerExport(kind, color, x, cy) {
     case 'square': return `<rect x="${x}" y="${cy - r}" width="${sw}" height="${sw}" rx="2" fill="#f3f2f1" stroke="#505a5f" stroke-width="1.5" stroke-dasharray="3,2"/>`;
     case 'line': return `<line x1="${x}" y1="${cy}" x2="${x + 24}" y2="${cy}" stroke="#b1b4b6" stroke-width="2"/>`;
     case 'line-dashed': return `<line x1="${x}" y1="${cy}" x2="${x + 24}" y2="${cy}" stroke="#8f7fc9" stroke-width="2" stroke-dasharray="4,3"/>`;
+    case 'external': return `<path d="M ${x + 6} ${cy - 6} L ${x + 12} ${cy} L ${x + 6} ${cy + 6} L ${x} ${cy} Z" fill="${MAP_EXT_CATS.government.color}"/>` +
+      `<path d="M ${x + 18} ${cy - 6} L ${x + 24} ${cy} L ${x + 18} ${cy + 6} L ${x + 12} ${cy} Z" fill="${MAP_EXT_CATS.organisation.color}"/>`;
     default: return '';
   }
 }
@@ -2256,6 +2386,9 @@ const MAP_KEY = [
   { marker: 'square', term: 'Shared destination',
     desc: 'a page outside your set that two or more of your pages link to.',
     when: c => c.hasHubs },
+  { marker: 'external', term: 'External site',
+    desc: 'a website outside GOV.UK that pages link to, one per site. Grey for government sites, purple for other organisations such as advice services.',
+    when: c => c.hasExternal },
   { marker: 'line', term: 'Body link',
     desc: 'a link in the page’s text.',
     when: () => true },
@@ -2290,6 +2423,8 @@ function mapKeyMarker(kind, color) {
       return s(`<line x1="2" y1="8" x2="26" y2="8" stroke="#b1b4b6" stroke-width="2"/>`);
     case 'line-dashed':
       return s(`<line x1="2" y1="8" x2="26" y2="8" stroke="#8f7fc9" stroke-width="2" stroke-dasharray="4,3"/>`);
+    case 'external': // one diamond per category: government, then other organisation
+      return s(`<path d="M 8 2 L 14 8 L 8 14 L 2 8 Z" fill="${MAP_EXT_CATS.government.color}"/><path d="M 20 2 L 26 8 L 20 14 L 14 8 Z" fill="${MAP_EXT_CATS.organisation.color}"/>`);
     default:
       return '';
   }
@@ -2389,8 +2524,9 @@ function mapExportCsv() {
   const g = map.graph;
   // Export the current on-screen view (after filters), matching the SVG/PNG.
   const view = map.view || { pages: new Set(g.inset.keys()), hubs: g.hubs, edges: g.edges };
-  const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
-  const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
+  const ext = k => (g.externals && g.externals.get(k)) || null;
+  const nodeLabel = k => { const p = g.inset.get(k); if (p) return p.title; const x = ext(k); return x ? x.name : mapHubLabel(k); };
+  const nodeType = k => { const p = g.inset.get(k); if (p) return formatLabel(p.format) || 'Unknown'; const x = ext(k); return x ? MAP_EXT_CATS[x.category].label : 'Outside set'; };
 
   const outAdj = new Map(), inAdj = new Map();
   const push = (m, key, val) => { if (!m.has(key)) m.set(key, []); m.get(key).push(val); };
@@ -2405,8 +2541,8 @@ function mapExportCsv() {
     const ins = (inAdj.get(k) || []).map(e => conn(e.src, e.kind));
     return {
       title: nodeLabel(k),
-      path: k,
-      url: GOVUK + k,
+      path: ext(k) ? ext(k).host : k,
+      url: ext(k) ? [...ext(k).urls].join(' | ') : GOVUK + k,
       content_type: nodeType(k),
       category,
       part_of_guide: p && p.guide ? p.guideTitle : '',
@@ -2426,7 +2562,9 @@ function mapExportCsv() {
   const byInThenTitle = (a, b) => b.links_in_count - a.links_in_count || a.title.localeCompare(b.title);
   pageRows.sort(byInThenTitle);
   hubRows.sort(byInThenTitle);
-  const rows = pageRows.concat(hubRows);
+  const extRows = [...(view.externals || [])].map(k => rowFor(k, 'External site'));
+  extRows.sort(byInThenTitle);
+  const rows = pageRows.concat(hubRows, extRows);
 
   const header = ['title', 'path', 'url', 'content_type', 'category', 'part_of_guide',
                   'last_updated', 'owner', 'welsh',
@@ -2445,8 +2583,9 @@ function mapExportEdgesCsv() {
   const g = map.graph;
   // Export the current on-screen view (after filters), matching the SVG/PNG.
   const view = map.view || { pages: new Set(g.inset.keys()), hubs: g.hubs, edges: g.edges };
-  const nodeLabel = k => { const p = g.inset.get(k); return p ? p.title : mapHubLabel(k); };
-  const nodeType = k => { const p = g.inset.get(k); return p ? (formatLabel(p.format) || 'Unknown') : 'Outside set'; };
+  const ext = k => (g.externals && g.externals.get(k)) || null;
+  const nodeLabel = k => { const p = g.inset.get(k); if (p) return p.title; const x = ext(k); return x ? x.name : mapHubLabel(k); };
+  const nodeType = k => { const p = g.inset.get(k); if (p) return formatLabel(p.format) || 'Unknown'; const x = ext(k); return x ? MAP_EXT_CATS[x.category].label : 'Outside set'; };
   const header = ['source', 'source_path', 'source_type', 'target', 'target_path', 'target_type',
                   'target_category', 'link_kind'];
   const csvCell = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -2455,8 +2594,8 @@ function mapExportEdgesCsv() {
     const targetInSet = view.pages.has(e.tgt);
     lines.push([
       nodeLabel(e.src), e.src, nodeType(e.src),
-      nodeLabel(e.tgt), e.tgt, nodeType(e.tgt),
-      targetInSet ? 'Page in set' : 'Shared destination',
+      nodeLabel(e.tgt), ext(e.tgt) ? ext(e.tgt).host : e.tgt, nodeType(e.tgt),
+      targetInSet ? 'Page in set' : (ext(e.tgt) ? 'External site' : 'Shared destination'),
       e.kind === 'related' ? 'related' : 'body',
     ].map(csvCell).join(','));
   });
@@ -2491,6 +2630,7 @@ function mapCaptureToggles() {
   return {
     visibleTypes: [...map.visibleTypes],
     hubs: el('map-show-hubs').checked,
+    external: el('map-show-external').checked,
     orphans: el('map-show-orphans').checked,
     welsh: el('map-show-welsh').checked,
     allLabels: el('map-show-labels').checked,
@@ -2501,6 +2641,8 @@ function mapApplyToggles(t) {
   if (!t) return;
   map.visibleTypes = new Set(t.visibleTypes || []);
   if ('hubs' in t) el('map-show-hubs').checked = !!t.hubs;
+  // Off unless the saved view had it on (older saves have no setting).
+  el('map-show-external').checked = !!t.external;
   if ('orphans' in t) el('map-show-orphans').checked = !!t.orphans;
   if ('welsh' in t) el('map-show-welsh').checked = !!t.welsh;
   if ('allLabels' in t) el('map-show-labels').checked = !!t.allLabels;
@@ -2799,6 +2941,7 @@ function setupMap() {
 
   // Toggles and filters re-render the same graph (no re-fetch).
   el('map-show-hubs').addEventListener('change', mapRerender);
+  el('map-show-external').addEventListener('change', mapRerender);
   el('map-show-orphans').addEventListener('change', mapRerender);
   el('map-show-welsh').addEventListener('change', mapRerender);
   el('map-show-labels').addEventListener('change', mapRerender);
