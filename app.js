@@ -2644,6 +2644,8 @@ function mapExport(fmt) {
   else if (fmt === 'png') mapExportPng();
   else if (fmt === 'csv-pages') mapExportCsv();
   else if (fmt === 'csv-connections') mapExportEdgesCsv();
+  else if (fmt === 'copylink') mapCopyViewLink();
+  else if (fmt === 'copyembed') mapCopyEmbedLink();
 }
 
 /* ----- Map: save and restore the arranged layout -----
@@ -3019,7 +3021,7 @@ function setupMap() {
     cover.firstElementChild.append(el('map-seed-status'), el('map-seed-progress'));
     el('map-seed-status').textContent = q.get('mseeds')
       ? 'Building the map from GOV.UK…'
-      : 'There is no map to show. In the tool, choose Layout, then Copy embed link.';
+      : 'There is no map to show. In the tool, choose Export, then Copy embed link.';
   }
   mapRestoreFromUrl(); // deep link: ?mseeds=... builds the map on load (renders the key)
 
@@ -3053,7 +3055,7 @@ function setupMap() {
   // On-screen zoom, centred on the map, for mice without a usable wheel.
   el('map-zoom-in').addEventListener('click', () => mapZoomBy(1.3));
   el('map-zoom-out').addEventListener('click', () => mapZoomBy(1 / 1.3));
-  // Layout menu: Re-run layout / Save layout / Load layout. Acts on selection,
+  // Layout menu: Re-run layout / Save layout / Load layout (arranging the map). Acts on selection,
   // then resets to the "Layout" label.
   el('map-layout-menu').addEventListener('change', (e) => {
     const v = e.target.value;
@@ -3061,8 +3063,6 @@ function setupMap() {
     if (v === 'relayout') mapRelayout();
     else if (v === 'save') mapSaveLayoutFile();
     else if (v === 'load') el('map-load-layout-file').click();
-    else if (v === 'copylink') mapCopyViewLink();
-    else if (v === 'copyembed') mapCopyEmbedLink();
   });
   el('map-load-layout-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
