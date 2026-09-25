@@ -185,16 +185,35 @@
     #map-panel.app-map-fullscreen #map-options { display: none; }
     #map-panel.app-map-fullscreen.app-map-options-open #map-options { display: block; position: absolute; top: 16px; left: 20px; right: 76px; z-index: 6; overflow: visible; background: #ffffff; border: 1px solid #b1b4b6; box-shadow: 0 6px 20px rgba(11,12,12,0.18); padding: 12px 16px 2px; }
     #map-panel.app-map-fullscreen #map-caption { display: none; }
-    #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 32px); }
+    #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 34px); } /* 32px padding + 2px border */
+    /* In an embed the map runs edge to edge, with no scrollbar. */
+    .app-embed #map-panel.app-map-fullscreen { padding: 0; overflow: hidden; }
+    .app-embed #map-panel.app-map-fullscreen #map-graph { height: 100vh; border: 0; }
+    .app-embed #map-panel.app-map-fullscreen.app-map-options-open #map-options { top: 8px; left: 8px; }
     .app-map-options-head { justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .app-map-options-close { background: none; border: 0; padding: 0; color: #1d70b8; text-decoration: underline; font: inherit; font-size: 1rem; cursor: pointer; }
     .app-map-options-close:focus { outline: 3px solid #ffdd00; background: #ffdd00; color: #0b0c0c; }
+    /* Embed mode (?embed=1, e.g. in Miro): only the full-screen map. The loading
+       cover sits under the full-screen map panel, which appears once built. */
+    .app-embed-loading { position: fixed; inset: 0; z-index: 999; background: #ffffff; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; }
+    .app-embed-loading[hidden] { display: none; }
+    .app-embed-loading .app-typebar-track { width: 260px; margin: 8px auto 0; }
+    .app-embed #map-fullscreen { display: none; }
+    .app-embed-badge { position: absolute; left: 8px; bottom: 8px; z-index: 5; background: rgba(255,255,255,0.94); border: 1px solid #b1b4b6; border-radius: 4px; padding: 4px 8px; font-size: 0.8125rem; color: #1d70b8; }
+    .app-embed-badge[hidden] { display: none; }
+    .app-embed-badge:focus { outline: 3px solid #ffdd00; background: #ffdd00; color: #0b0c0c; }
     /* Show/hide for the key and tips below the map. */
     .app-map-guide { margin-bottom: 0; }
     .app-map-guide .govuk-details__text { border-left: 0; padding: 12px 0 0; }
   </style>
 </head>
 <body class="govuk-template__body">
+  <!-- Embed mode only (?embed=1): covers the page while the map builds. -->
+  <div id="map-embed-loading" class="app-embed-loading" hidden>
+    <div>
+      <p class="govuk-body govuk-!-margin-bottom-2"><strong>GOV.UK Content Explorer</strong> (unofficial)</p>
+    </div>
+  </div>
   <script>document.body.className += ' js-enabled' + ('noModule' in HTMLScriptElement.prototype ? ' govuk-frontend-supported' : '');</script>
 
   <!-- Black service header. Deliberately no GOV.UK crown/logo: this is not a
@@ -490,6 +509,7 @@
                 <option value="save">Save layout</option>
                 <option value="load">Load layout</option>
                 <option value="copylink">Copy view link</option>
+                <option value="copyembed">Copy embed link</option>
               </select>
               <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-export-format" aria-label="Export the map">
                 <option value="">Export</option>
@@ -507,6 +527,7 @@
 
             <div class="app-map-graph-wrap">
               <div id="map-graph"></div>
+              <a id="map-embed-open" class="app-embed-badge" href="./" target="_blank" rel="noopener" hidden>Unofficial GOV.UK Content Explorer: open the full view<span class="govuk-visually-hidden"> (opens in a new tab)</span></a>
               <div class="app-map-zoom">
                 <button type="button" id="map-zoom-in" class="app-map-zoom-btn" aria-label="Zoom in" title="Zoom in">+</button>
                 <button type="button" id="map-zoom-out" class="app-map-zoom-btn" aria-label="Zoom out" title="Zoom out">&minus;</button>

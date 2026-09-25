@@ -30,8 +30,8 @@ Three views:
   Publications are opened up into the HTML pages inside them, and you can switch
   on external sites to see where the service signposts people outside GOV.UK,
   such as Citizens Advice. You can filter by content type or language, rearrange
-  and save the layout, share an exact view by link, and export to image (SVG or
-  PNG) or spreadsheet (CSV).
+  and save the layout, share an exact view by link, embed the live map in tools
+  like Miro, and export to image (SVG or PNG) or spreadsheet (CSV).
 
 ## How it works (in brief)
 

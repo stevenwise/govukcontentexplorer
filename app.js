@@ -1368,6 +1368,7 @@ const map = {
   seedMeta: null,     // {seedCount, hops, reached}
   seedKeys: null,     // the start-page keys, for the core group
   sharedView: null,   // a view-link arrangement to apply on the next build, or null
+  embed: false,       // ?embed=1: map-only, always full screen (e.g. inside Miro)
   view: null,         // the current on-screen view after filters {pages, hubs, edges}, for exports
   visibleTypes: new Set(), // content-type filter: empty = show all, else show only these
   presetPositions: null, // saved manual arrangement (id -> {x,y}), or null for auto-layout
@@ -2755,10 +2756,11 @@ async function mapDecodeView(data) {
   return JSON.parse(json);
 }
 
-async function mapBuildViewUrl() {
+async function mapBuildViewUrl(embed) {
   const payload = mapViewPayload();
   const frag = await mapEncodeView(payload);
   const p = new URLSearchParams();
+  if (embed) p.set('embed', '1'); // map-only view for Miro and similar
   if (payload.s.length) p.set('mseeds', payload.s.join('|'));
   if (payload.h === 2) p.set('mhops', '2');
   if (payload.c && payload.c !== 150) p.set('mscap', String(payload.c));
@@ -2787,6 +2789,21 @@ async function mapCopyViewLink() {
   } catch (e) {
     // Clipboard blocked or no user gesture: show the link for manual copying.
     prompt('Copy this link to share the exact view:', url);
+  }
+}
+
+// Like "Copy view link", but opens as the map alone, full screen: for embedding
+// in Miro or any tool that shows web pages.
+async function mapCopyEmbedLink() {
+  if (!map.graph) return;
+  let url;
+  try { url = await mapBuildViewUrl(true); }
+  catch (e) { mapFlashStatus('Could not build the link.'); return; }
+  try {
+    await navigator.clipboard.writeText(url);
+    mapFlashStatus('Embed link copied. Paste it into Miro or similar.');
+  } catch (e) {
+    prompt('Copy this link to embed the map:', url);
   }
 }
 
@@ -2896,6 +2913,7 @@ function mapToggleOptions(force) {
 }
 
 function mapToggleFullscreen(force) {
+  if (map.embed && map.fullscreen && force !== true) return; // an embed stays full screen
   map.fullscreen = force != null ? force : !map.fullscreen;
   mapToggleOptions(false); // always start or leave full screen with the panel closed
   el('map-panel').classList.toggle('app-map-fullscreen', map.fullscreen);
@@ -2933,7 +2951,7 @@ function mapRenderCards() {
 /* ----- Map: URL state (deep links) ----- */
 
 function mapUpdateUrl() {
-  if (map.restoring) return;
+  if (map.restoring || map.embed) return; // an embed keeps its link exactly as given
   const p = new URLSearchParams();
   const seeds = mapReadSeeds();
   if (seeds.length) p.set('mseeds', seeds.join('|')); // paths never contain a pipe
@@ -2977,10 +2995,32 @@ async function mapRestoreFromUrl() {
   } finally {
     map.restoring = false;
     mapUpdateUrl();
+    if (map.embed && map.graph) {
+      mapToggleFullscreen(true);
+      el('map-embed-loading').hidden = true;
+      const full = new URL(location.href);
+      full.searchParams.delete('embed');
+      el('map-embed-open').href = full.toString();
+      el('map-embed-open').hidden = false;
+    }
   }
 }
 
 function setupMap() {
+  // Embed mode (?embed=1, from "Copy embed link"): show only the full-screen map.
+  // A loading cover hides the page while the map builds; the build's own status
+  // and progress bar move onto it, so errors are still visible.
+  const q = new URLSearchParams(location.search);
+  map.embed = q.get('embed') === '1';
+  if (map.embed) {
+    document.documentElement.classList.add('app-embed');
+    const cover = el('map-embed-loading');
+    cover.hidden = false;
+    cover.firstElementChild.append(el('map-seed-status'), el('map-seed-progress'));
+    el('map-seed-status').textContent = q.get('mseeds')
+      ? 'Building the map from GOV.UK…'
+      : 'There is no map to show. In the tool, choose Layout, then Copy embed link.';
+  }
   mapRestoreFromUrl(); // deep link: ?mseeds=... builds the map on load (renders the key)
 
   el('map-seed-build').addEventListener('click', mapSeedBuild);
@@ -3022,6 +3062,7 @@ function setupMap() {
     else if (v === 'save') mapSaveLayoutFile();
     else if (v === 'load') el('map-load-layout-file').click();
     else if (v === 'copylink') mapCopyViewLink();
+    else if (v === 'copyembed') mapCopyEmbedLink();
   });
   el('map-load-layout-file').addEventListener('change', (e) => {
     const f = e.target.files[0];
