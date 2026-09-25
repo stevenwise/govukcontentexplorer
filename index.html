@@ -572,25 +572,28 @@
 
         <div class="govuk-grid-row">
           <div class="govuk-grid-column-two-thirds">
+            <p class="govuk-body">This is an unofficial personal project. It is not a GOV.UK service.</p>
             <p class="govuk-body">A tool for looking at GOV.UK content through its own public APIs.</p>
             <p class="govuk-body">Three ways in:</p>
             <ul class="govuk-list govuk-list--bullet">
               <li><strong>Page view</strong> inspects a single page: who owns it, how stale it is, what pages hide inside it, whether there's a Welsh version, and what it links out to.</li>
               <li><strong>Estate view</strong> shows what a department publishes, broken down by content type and age, as a filterable table you can export.</li>
-              <li><strong>Map view</strong> draws a filtered set of pages as a network, using the links in their body text to show how they connect and which shared pages they funnel users toward.</li>
+              <li><strong>Map view</strong> traces a service from a starting page and draws its content as a map: how the pages link to each other through their text and their "Related content" links, the parts of guides and publications grouped together, and the shared pages they send people to. You can also show the external sites it signposts to, such as Citizens Advice.</li>
             </ul>
 
             <h2 class="govuk-heading-m">Where the data comes from</h2>
             <p class="govuk-body">Everything is fetched live, read-only, from two public GOV.UK APIs:</p>
             <ul class="govuk-list govuk-list--bullet">
-              <li><a class="govuk-link" href="https://content-api.publishing.service.gov.uk/" target="_blank" rel="noopener">Content API</a> for the full record for a single page (Page view).</li>
-              <li><a class="govuk-link" href="https://docs.publishing.service.gov.uk/repos/search-api/using-the-search-api.html" target="_blank" rel="noopener">Search API</a> for the search index, used for the estate breakdown and title search.</li>
+              <li><a class="govuk-link" href="https://content-api.publishing.service.gov.uk/" target="_blank" rel="noopener">Content API</a>, to read each page in full: its ownership, dates, the pages inside it and its links (used by Page view and Map view).</li>
+              <li><a class="govuk-link" href="https://docs.publishing.service.gov.uk/repos/search-api/using-the-search-api.html" target="_blank" rel="noopener">Search API</a>, for the search index, used for the Estate view breakdown and title search.</li>
             </ul>
 
             <h2 class="govuk-heading-m">What it does not cover</h2>
             <ul class="govuk-list govuk-list--bullet">
-              <li>GOV.UK only. Nothing on other government domains (service.gov.uk and the like).</li>
+              <li>It only reads GOV.UK pages. The map can show links out to other sites, including other government services, but it does not read those sites.</li>
               <li>No in-service content: the pages inside transactional services are not in these APIs.</li>
+              <li>Attached files such as PDFs are not read.</li>
+              <li>Only live, published content. Drafts and unpublished updates do not appear.</li>
               <li>Read-only. It never changes anything on GOV.UK.</li>
             </ul>
 
