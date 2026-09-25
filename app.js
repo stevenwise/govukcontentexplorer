@@ -2442,7 +2442,14 @@ function mapRenderKey(ctx) {
       `<span class="app-map-key-text"><strong>${esc(r.term)}:</strong> ${desc}</span></div>`;
   }).join('');
   const heading = (t) => `<h3 class="govuk-heading-s govuk-!-margin-bottom-2 govuk-!-margin-top-0">${t}</h3>`;
+  // Wrapped in a show/hide (GOV.UK details). The open/closed choice is a per-viewer
+  // convenience kept in this browser, and re-applied on every re-render.
+  let guideOpen = true;
+  try { guideOpen = localStorage.getItem('gce.mapGuideOpen') !== '0'; } catch (e) {}
   box.innerHTML =
+    `<details class="govuk-details app-map-guide"${guideOpen ? ' open' : ''}>` +
+    `<summary class="govuk-details__summary"><span class="govuk-details__summary-text">How to read and use this map</span></summary>` +
+    `<div class="govuk-details__text">` +
     `<div class="app-map-caption-cols">` +
       `<div class="app-map-caption-col">` +
         heading('Reading the map') +
@@ -2453,7 +2460,10 @@ function mapRenderKey(ctx) {
         `<ul class="govuk-list govuk-list--bullet app-map-using app-muted govuk-!-margin-bottom-0">` +
         MAP_USING.map(i => `<li>${esc(i)}</li>`).join('') + '</ul>' +
       `</div>` +
-    `</div>`;
+    `</div></div></details>`;
+  box.querySelector('details').addEventListener('toggle', (e) => {
+    try { localStorage.setItem('gce.mapGuideOpen', e.target.open ? '1' : '0'); } catch (err) {}
+  });
 }
 
 // Build the whole export as one SVG: the graph, then the combined key (the same
@@ -2832,8 +2842,17 @@ const MAP_ICON_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hi
 const MAP_ICON_CONTRACT = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M7 13v-4H3M7 9l-4 4M9 3v4h4M9 7l4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Expand the graph panel to fill the viewport (and back).
+// Full screen only: show or hide the map options as a floating panel.
+function mapToggleOptions(force) {
+  const open = force != null ? force : !el('map-panel').classList.contains('app-map-options-open');
+  el('map-panel').classList.toggle('app-map-options-open', open);
+  el('map-options-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) { const first = el('map-options').querySelector('input, select, button'); if (first) first.focus(); }
+}
+
 function mapToggleFullscreen(force) {
   map.fullscreen = force != null ? force : !map.fullscreen;
+  mapToggleOptions(false); // always start or leave full screen with the panel closed
   el('map-panel').classList.toggle('app-map-fullscreen', map.fullscreen);
   const btn = el('map-fullscreen');
   btn.innerHTML = map.fullscreen ? MAP_ICON_CONTRACT : MAP_ICON_EXPAND;
@@ -2996,9 +3015,15 @@ function setupMap() {
     mapRerender();
   });
 
-  // Esc leaves full screen.
+  // Full-screen options panel.
+  el('map-options-btn').addEventListener('click', () => mapToggleOptions());
+  el('map-options-close').addEventListener('click', () => { mapToggleOptions(false); el('map-options-btn').focus(); });
+
+  // Esc closes the options panel first, then leaves full screen.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && map.fullscreen) mapToggleFullscreen(false);
+    if (e.key !== 'Escape' || !map.fullscreen) return;
+    if (el('map-panel').classList.contains('app-map-options-open')) { mapToggleOptions(false); el('map-options-btn').focus(); }
+    else mapToggleFullscreen(false);
   });
 }
 
