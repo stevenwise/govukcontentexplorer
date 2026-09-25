@@ -2124,8 +2124,10 @@ function mapRender() {
         'text-opacity': 1, 'font-weight': 'bold',
       } },
       // External sites: a diamond, coloured government or other organisation.
+      // Plain 'diamond', not 'round-diamond': the SVG exporter cannot draw the
+      // rounded version (the shape is lost and its colours leak onto labels).
       { selector: 'node[kind="external"]', style: {
-        'shape': 'round-diamond', 'background-color': 'data(color)', 'border-width': 2,
+        'shape': 'diamond', 'background-color': 'data(color)', 'border-width': 2,
         'border-color': '#ffffff', 'font-weight': 'bold', 'text-opacity': 1,
       } },
       { selector: 'node[kind="hub"]', style: {
