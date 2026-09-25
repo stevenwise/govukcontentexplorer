@@ -2246,41 +2246,58 @@ function mapRender() {
 
 // Content-type filter chips over the graph. Empty selection shows all; picking
 // one or more shows only those. Present in both modes.
+// The Filter menu: tick content types (and, when shown, external-site groups) to
+// narrow the map. None ticked means everything shows. Also sets the Filter button
+// label and the "Filtered to" line under the toolbar.
+function mapFilterLabel(t) {
+  if (t.startsWith('external:')) { const c = MAP_EXT_CATS[t.slice(9)]; return c ? c.label : t; }
+  return formatLabel(t) || 'Unknown';
+}
 function mapRenderTypeChips(cm) {
   const box = el('map-type-chips');
   const counts = {};
   map.graph.inset.forEach(p => { counts[p.format] = (counts[p.format] || 0) + 1; });
   const types = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const chip = (t, n, label, colour) => {
-    const active = map.visibleTypes.has(t);
-    return `<button type="button" class="app-chip${active ? ' app-chip--active' : ''}" data-type="${esc(t)}" title="${esc(label)}">
-      <span class="app-legend-swatch" style="background:${colour};width:12px;height:12px;margin-right:5px;"></span>${esc(label)} (${n.toLocaleString('en-GB')})</button>`;
+  const option = (t, n, label, colour) => {
+    const id = 'mf-' + t.replace(/[^a-z0-9]+/gi, '-');
+    return `<div class="govuk-checkboxes__item">
+      <input class="govuk-checkboxes__input" id="${id}" type="checkbox" data-type="${esc(t)}"${map.visibleTypes.has(t) ? ' checked' : ''}>
+      <label class="govuk-label govuk-checkboxes__label" for="${id}"><span class="app-legend-swatch" style="background:${colour};width:12px;height:12px;margin-right:6px;"></span>${esc(label)} <span class="app-muted">(${n.toLocaleString('en-GB')})</span></label>
+    </div>`;
   };
-  const rows = [];
+  let html = '';
   if (types.length > 1) {
-    let row = `<div class="app-chip-row"><span class="app-chip-label">Content type</span>`;
-    // One-click shortcut to filter the map to guidance content types (like Estate view).
+    html += `<div class="app-filter-group"><p class="app-filter-heading">Content type</p>` +
+      `<p class="app-filter-hint">Tick to show only those. None ticked shows everything.</p>`;
     const presentGuidance = types.map(([t]) => t).filter(t => GUIDANCE_TYPES.includes(t));
     if (presentGuidance.length) {
-      const allActive = map.visibleTypes.size === presentGuidance.length && presentGuidance.every(t => map.visibleTypes.has(t));
-      row += `<button type="button" class="app-chip app-chip--more${allActive ? ' app-chip--active' : ''}" data-type-guidance="1">Guidance types</button> `;
+      html += `<p class="app-filter-shortcut"><button type="button" class="app-link-btn" data-type-guidance="1">Guidance types only</button></p>`;
     }
-    row += types.map(([t, n]) => chip(t, n, formatLabel(t) || 'Unknown', cm[t] || '#1d70b8')).join(' ');
-    rows.push(row);
+    html += `<div class="govuk-checkboxes govuk-checkboxes--small">` +
+      types.map(([t, n]) => option(t, n, formatLabel(t) || 'Unknown', cm[t] || '#1d70b8')).join('') + `</div></div>`;
   }
-  // External sites (only while "Show external sites" is on): filter by category.
+  // External sites (only while "External sites" is ticked in the Show menu).
   if (el('map-show-external').checked && map.graph.externals && map.graph.externals.size) {
     const extCounts = {};
     map.graph.externals.forEach(x => { extCounts[x.category] = (extCounts[x.category] || 0) + 1; });
     const cats = Object.keys(MAP_EXT_CATS).filter(c => extCounts[c]);
     if (cats.length) {
-      rows.push(`<div class="app-chip-row"><span class="app-chip-label">External sites</span>` +
-        cats.map(c => chip('external:' + c, extCounts[c], MAP_EXT_CATS[c].label, MAP_EXT_CATS[c].color)).join(' '));
+      html += `<div class="app-filter-group"><p class="app-filter-heading">External sites</p>` +
+        `<div class="govuk-checkboxes govuk-checkboxes--small">` +
+        cats.map(c => option('external:' + c, extCounts[c], MAP_EXT_CATS[c].label, MAP_EXT_CATS[c].color)).join('') + `</div></div>`;
     }
   }
-  if (!rows.length) { box.innerHTML = ''; return; }
-  if (map.visibleTypes.size) rows[rows.length - 1] += ` <button type="button" class="app-chip app-chip--clear" data-type-clear="1">Clear</button>`;
-  box.innerHTML = rows.map(r => r + `</div>`).join('');
+  if (!html) html = `<p class="govuk-body-s govuk-!-margin-bottom-2">This map has only one content type, so there is nothing to filter.</p>`;
+  box.innerHTML = html;
+
+  // Filter button label, and the summary line only while a filter is on.
+  const active = [...map.visibleTypes];
+  const btn = el('map-filter-btn');
+  btn.textContent = active.length ? `Filter (${active.length})` : 'Filter';
+  btn.classList.toggle('is-active', active.length > 0);
+  el('map-filter-summary').innerHTML = active.length
+    ? `Filtered to: <strong>${active.map(t => esc(mapFilterLabel(t))).join(', ')}</strong>. <button type="button" class="app-link-btn" data-type-clear="1">Clear filter</button>`
+    : '';
 }
 
 /* ----- Map: export (SVG for Figma/Miro, PNG) ----- */
@@ -2438,8 +2455,14 @@ function mapRenderKey(ctx) {
   const singleNote = ctx.singleType ? ` All pages here are ${esc(ctx.singleType)}.` : '';
   const rows = MAP_KEY.filter(r => r.when(ctx)).map(r => {
     const desc = r.marker === 'circle' ? esc(r.desc) + singleNote : esc(r.desc);
-    return `<div class="app-map-key-row"><span class="app-map-key-marker">${mapKeyMarker(r.marker, ctx.pageColour)}</span>` +
+    const row = `<div class="app-map-key-row"><span class="app-map-key-marker">${mapKeyMarker(r.marker, ctx.pageColour)}</span>` +
       `<span class="app-map-key-text"><strong>${esc(r.term)}:</strong> ${desc}</span></div>`;
+    // Under the Page row, the colour of each content type on this map (the
+    // Filter menu is not always open, so the colours are spelled out here).
+    const types = (ctx.colourItems || []);
+    if (r.marker !== 'circle' || types.length < 2) return row;
+    return row + `<div class="app-map-key-types">` + types.map(t =>
+      `<span class="app-map-key-type"><span class="app-legend-swatch" style="background:${t.color};width:11px;height:11px;"></span>${esc(t.label)}</span>`).join('') + `</div>`;
   }).join('');
   const heading = (t) => `<h3 class="govuk-heading-s govuk-!-margin-bottom-2 govuk-!-margin-top-0">${t}</h3>`;
   // Wrapped in a show/hide (GOV.UK details). The open/closed choice is a per-viewer
@@ -2842,12 +2865,32 @@ const MAP_ICON_EXPAND = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hi
 const MAP_ICON_CONTRACT = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M7 13v-4H3M7 9l-4 4M9 3v4h4M9 7l4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 // Expand the graph panel to fill the viewport (and back).
+// Show / Filter dropdown menus. Opening one closes the other.
+function mapToggleMenu(btn, force) {
+  const panel = el(btn.getAttribute('aria-controls'));
+  const open = force != null ? force : panel.hidden;
+  if (open) mapCloseMenus();
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+// Close any open menu. Returns true if one was open (so Esc can stop there).
+function mapCloseMenus(refocus) {
+  let closed = false;
+  document.querySelectorAll('.app-menu-btn[aria-expanded="true"]').forEach(btn => {
+    el(btn.getAttribute('aria-controls')).hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    if (refocus) btn.focus();
+    closed = true;
+  });
+  return closed;
+}
+
 // Full screen only: show or hide the map options as a floating panel.
 function mapToggleOptions(force) {
   const open = force != null ? force : !el('map-panel').classList.contains('app-map-options-open');
   el('map-panel').classList.toggle('app-map-options-open', open);
   el('map-options-btn').setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (open) { const first = el('map-options').querySelector('input, select, button'); if (first) first.focus(); }
+  if (open) el('map-show-btn').focus(); else mapCloseMenus();
 }
 
 function mapToggleFullscreen(force) {
@@ -2997,23 +3040,36 @@ function setupMap() {
   }
 
   // Content-type filter chips.
+  // Filter menu: ticking a type narrows the map. Re-rendering rebuilds the list,
+  // so put focus back on the box that was just changed.
+  el('map-type-chips').addEventListener('change', (e) => {
+    const input = e.target.closest('input[data-type]');
+    if (!input) return;
+    const t = input.dataset.type;
+    if (input.checked) map.visibleTypes.add(t); else map.visibleTypes.delete(t);
+    mapRerender();
+    const again = el(input.id); if (again) again.focus();
+  });
   el('map-type-chips').addEventListener('click', (e) => {
-    const clear = e.target.closest('[data-type-clear]');
-    const guidance = e.target.closest('[data-type-guidance]');
-    const chip = e.target.closest('[data-type]');
-    if (clear) { map.visibleTypes.clear(); mapRerender(); return; }
-    if (guidance) {
-      const present = [...new Set(map.graph.pages.map(p => p.format))].filter(t => GUIDANCE_TYPES.includes(t));
-      const allActive = map.visibleTypes.size === present.length && present.every(t => map.visibleTypes.has(t));
-      map.visibleTypes = allActive ? new Set() : new Set(present); // toggle guidance-only
-      mapRerender();
-      return;
-    }
-    if (!chip) return;
-    const t = chip.dataset.type;
-    if (map.visibleTypes.has(t)) map.visibleTypes.delete(t); else map.visibleTypes.add(t);
+    if (!e.target.closest('[data-type-guidance]')) return;
+    const present = [...new Set(map.graph.pages.map(p => p.format))].filter(t => GUIDANCE_TYPES.includes(t));
+    const allActive = map.visibleTypes.size === present.length && present.every(t => map.visibleTypes.has(t));
+    map.visibleTypes = allActive ? new Set() : new Set(present); // toggle guidance-only
     mapRerender();
   });
+  // "Clear filter" on the summary line.
+  el('map-filter-summary').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-type-clear]')) return;
+    map.visibleTypes.clear();
+    mapRerender();
+    el('map-filter-btn').focus();
+  });
+
+  // Show and Filter menus: one open at a time; outside click or Esc closes.
+  ['map-show-btn', 'map-filter-btn'].forEach(id => {
+    el(id).addEventListener('click', (e) => { e.stopPropagation(); mapToggleMenu(el(id)); });
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.app-menu')) mapCloseMenus(); });
 
   // Full-screen options panel.
   el('map-options-btn').addEventListener('click', () => mapToggleOptions());
@@ -3021,7 +3077,9 @@ function setupMap() {
 
   // Esc closes the options panel first, then leaves full screen.
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !map.fullscreen) return;
+    if (e.key !== 'Escape') return;
+    if (mapCloseMenus(true)) return; // an open Show/Filter menu closes first
+    if (!map.fullscreen) return;
     if (el('map-panel').classList.contains('app-map-options-open')) { mapToggleOptions(false); el('map-options-btn').focus(); }
     else mapToggleFullscreen(false);
   });

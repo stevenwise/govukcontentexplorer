@@ -127,7 +127,6 @@
     .app-map-zoom-btn:hover { background: #f3f2f1; border-color: #0b0c0c; }
     .app-map-zoom-btn:focus { outline: 3px solid #ffdd00; outline-offset: 0; border-color: #0b0c0c; }
     .app-map-zoom-sep { margin-top: 8px; }
-    .app-map-controls { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
     /* Dual keyline on the filter-chip colour dots: the dark inner border separates
        pale dots on a white chip, the white outer ring separates blue dots on a
        selected (blue) chip. */
@@ -138,6 +137,8 @@
     .app-map-key-marker { flex: 0 0 30px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
     .app-map-key-text { font-size: 0.875rem; color: #505a5f; line-height: 1.35; }
     .app-map-key-text strong { color: #0b0c0c; }
+    .app-map-key-types { margin: -2px 0 9px 40px; font-size: 0.875rem; color: #505a5f; line-height: 1.9; }
+    .app-map-key-type { display: inline-flex; align-items: center; gap: 5px; margin-right: 14px; white-space: nowrap; }
     /* Match the "Using the map" bullets to the key text size. */
     .app-map-using { font-size: 0.875rem; }
     .app-map-using li { margin-bottom: 4px; }
@@ -151,18 +152,30 @@
       .app-map-caption-cols > .app-map-caption-col + .app-map-caption-col { border-left: 0; padding-left: 0; border-top: 1px solid #b1b4b6; padding-top: 16px; }
     }
     #map-progress { margin-top: 10px; }
-    /* One aligned row of view/layout/export controls; two matching menu-selects. */
-    .app-map-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .app-map-actions .govuk-button { height: 40px; }
+    /* Map toolbar: four matching menus in one row (Show, Filter, Layout, Export). */
+    .app-map-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
     .app-menu-select { width: auto; min-width: 130px; height: 40px; }
-    /* Stack the menu row and its confirmation. The column is content-width and
-       sits at the right (via the controls' space-between); the menus align to its
-       right, the message to its left, so the message lands directly under the
-       Layout menu without shifting anything. Reserved line stops the map jumping. */
-    .app-map-actions-col { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
-    .app-map-action-status { align-self: flex-start; text-align: left; min-height: 1.25rem; font-size: 0.875rem; color: #0b0c0c; }
-    /* Keep each map control label on one line; the items wrap as a group instead. */
-    .app-map-controls .govuk-checkboxes__label { white-space: nowrap; }
+    .app-menu { position: relative; }
+    .app-menu-btn { position: relative; height: 40px; min-width: 130px; padding: 0 36px 0 10px; border: 2px solid #0b0c0c; border-radius: 0; background: #ffffff; color: #0b0c0c; font: inherit; font-size: 1.1875rem; text-align: left; cursor: pointer; }
+    .app-menu-btn::after { content: ""; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; border-right: 1.5px solid #0b0c0c; border-bottom: 1.5px solid #0b0c0c; transform: translateY(-70%) rotate(45deg); }
+    .app-menu-btn[aria-expanded="true"]::after { transform: translateY(-25%) rotate(-135deg); }
+    .app-menu-btn:focus { outline: 3px solid #ffdd00; outline-offset: 0; box-shadow: inset 0 0 0 2px #0b0c0c; }
+    .app-menu-btn.is-active { border-color: #1d70b8; color: #1d70b8; font-weight: 700; }
+    .app-menu-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 250px; background: #ffffff; border: 1px solid #b1b4b6; box-shadow: 0 6px 20px rgba(11,12,12,0.18); padding: 14px 16px 8px; }
+    .app-menu-panel--wide { min-width: 330px; max-height: 60vh; overflow-y: auto; }
+    .app-menu-panel .govuk-checkboxes__label { white-space: nowrap; }
+    .app-filter-heading { font-weight: 700; font-size: 1rem; margin: 0 0 2px; }
+    .app-filter-hint { font-size: 0.875rem; color: #505a5f; margin: 0 0 8px; }
+    .app-filter-group + .app-filter-group { border-top: 1px solid #b1b4b6; margin-top: 8px; padding-top: 12px; }
+    .app-link-btn { background: none; border: 0; padding: 0; color: #1d70b8; text-decoration: underline; font: inherit; font-size: 1rem; cursor: pointer; }
+    .app-link-btn:focus { outline: 3px solid #ffdd00; background: #ffdd00; color: #0b0c0c; }
+    .app-filter-shortcut { margin: 0 0 10px; }
+    /* Shown only when a filter is on: what the map is narrowed to. */
+    .app-map-filter-summary { font-size: 1rem; margin: 0 0 10px; }
+    .app-map-filter-summary:empty { display: none; }
+    /* Action confirmation sits at the end of the toolbar row, after the menus, so
+       it never pushes them. Dark text for AA contrast. */
+    .app-map-action-status { flex: 1 1 180px; font-size: 0.875rem; color: #0b0c0c; }
     /* Full-screen graph: the results panel fills the viewport. */
     #map-panel.app-map-fullscreen { position: fixed; inset: 0; z-index: 1000; margin: 0; border: 0; background: #ffffff; overflow-y: auto; padding: 16px 20px; }
     /* Full screen is all map: the options and chips open as a floating panel from
@@ -170,15 +183,12 @@
     .app-fs-only { display: none; }
     #map-panel.app-map-fullscreen .app-fs-only { display: flex; }
     #map-panel.app-map-fullscreen #map-options { display: none; }
-    #map-panel.app-map-fullscreen.app-map-options-open #map-options { display: block; position: absolute; top: 16px; left: 20px; right: 76px; z-index: 6; max-height: calc(100vh - 32px); overflow-y: auto; background: #ffffff; border: 1px solid #b1b4b6; box-shadow: 0 6px 20px rgba(11,12,12,0.18); padding: 12px 16px; }
+    #map-panel.app-map-fullscreen.app-map-options-open #map-options { display: block; position: absolute; top: 16px; left: 20px; right: 76px; z-index: 6; overflow: visible; background: #ffffff; border: 1px solid #b1b4b6; box-shadow: 0 6px 20px rgba(11,12,12,0.18); padding: 12px 16px 2px; }
     #map-panel.app-map-fullscreen #map-caption { display: none; }
     #map-panel.app-map-fullscreen #map-graph { height: calc(100vh - 32px); }
     .app-map-options-head { justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .app-map-options-close { background: none; border: 0; padding: 0; color: #1d70b8; text-decoration: underline; font: inherit; font-size: 1rem; cursor: pointer; }
     .app-map-options-close:focus { outline: 3px solid #ffdd00; background: #ffdd00; color: #0b0c0c; }
-    /* Let the checkboxes take the free width so they sit in one row, not a column. */
-    .app-map-controls > .govuk-checkboxes { flex: 1 1 0; min-width: 260px; display: flex; flex-wrap: wrap; column-gap: 24px; row-gap: 0; }
-    .app-map-controls > .govuk-checkboxes .govuk-checkboxes__item { margin-bottom: 4px; }
     /* Show/hide for the key and tips below the map. */
     .app-map-guide { margin-bottom: 0; }
     .app-map-guide .govuk-details__text { border-left: 0; padding: 12px 0 0; }
@@ -439,53 +449,60 @@
               <h2 class="govuk-heading-s govuk-!-margin-bottom-0">Map options</h2>
               <button type="button" class="app-map-options-close" id="map-options-close">Close</button>
             </div>
-            <div class="app-map-controls">
-              <div class="govuk-checkboxes govuk-checkboxes--small govuk-checkboxes--inline govuk-!-margin-bottom-0">
-                <div class="govuk-checkboxes__item">
-                  <input class="govuk-checkboxes__input" id="map-show-hubs" type="checkbox" checked>
-                  <label class="govuk-label govuk-checkboxes__label" for="map-show-hubs">Show shared destinations</label>
-                </div>
-                <div class="govuk-checkboxes__item">
-                  <input class="govuk-checkboxes__input" id="map-show-external" type="checkbox">
-                  <label class="govuk-label govuk-checkboxes__label" for="map-show-external">Show external sites</label>
-                </div>
-                <div class="govuk-checkboxes__item">
-                  <input class="govuk-checkboxes__input" id="map-show-orphans" type="checkbox" checked>
-                  <label class="govuk-label govuk-checkboxes__label" for="map-show-orphans">Show unlinked pages</label>
-                </div>
-                <div class="govuk-checkboxes__item">
-                  <input class="govuk-checkboxes__input" id="map-show-welsh" type="checkbox">
-                  <label class="govuk-label govuk-checkboxes__label" for="map-show-welsh">Show Welsh pages <span id="map-welsh-count" class="app-muted"></span></label>
-                </div>
-                <div class="govuk-checkboxes__item">
-                  <input class="govuk-checkboxes__input" id="map-show-labels" type="checkbox">
-                  <label class="govuk-label govuk-checkboxes__label" for="map-show-labels">Show all labels</label>
+            <!-- One toolbar of four matching menus: Show, Filter, Layout, Export. -->
+            <div class="app-map-toolbar">
+              <div class="app-menu">
+                <button type="button" class="app-menu-btn" id="map-show-btn" aria-expanded="false" aria-controls="map-show-panel">Show</button>
+                <div class="app-menu-panel" id="map-show-panel" hidden>
+                  <div class="govuk-checkboxes govuk-checkboxes--small govuk-!-margin-bottom-0">
+                    <div class="govuk-checkboxes__item">
+                      <input class="govuk-checkboxes__input" id="map-show-hubs" type="checkbox" checked>
+                      <label class="govuk-label govuk-checkboxes__label" for="map-show-hubs">Shared destinations</label>
+                    </div>
+                    <div class="govuk-checkboxes__item">
+                      <input class="govuk-checkboxes__input" id="map-show-external" type="checkbox">
+                      <label class="govuk-label govuk-checkboxes__label" for="map-show-external">External sites</label>
+                    </div>
+                    <div class="govuk-checkboxes__item">
+                      <input class="govuk-checkboxes__input" id="map-show-orphans" type="checkbox" checked>
+                      <label class="govuk-label govuk-checkboxes__label" for="map-show-orphans">Unlinked pages</label>
+                    </div>
+                    <div class="govuk-checkboxes__item">
+                      <input class="govuk-checkboxes__input" id="map-show-welsh" type="checkbox">
+                      <label class="govuk-label govuk-checkboxes__label" for="map-show-welsh">Welsh pages <span id="map-welsh-count" class="app-muted"></span></label>
+                    </div>
+                    <div class="govuk-checkboxes__item">
+                      <input class="govuk-checkboxes__input" id="map-show-labels" type="checkbox">
+                      <label class="govuk-label govuk-checkboxes__label" for="map-show-labels">All labels</label>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div class="app-map-actions-col">
-                <div class="app-map-actions">
-                <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-layout-menu" aria-label="Layout actions">
-                  <option value="">Layout</option>
-                  <option value="relayout">Re-run layout</option>
-                  <option value="save">Save layout</option>
-                  <option value="load">Load layout</option>
-                  <option value="copylink">Copy view link</option>
-                </select>
-                <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-export-format" aria-label="Export the map">
-                  <option value="">Export</option>
-                  <option value="svg">SVG (Figma, Miro)</option>
-                  <option value="png">PNG image</option>
-                  <option value="csv-pages">Pages and links (CSV)</option>
-                  <option value="csv-connections">Connections list (CSV)</option>
-                </select>
-                <input type="file" id="map-load-layout-file" accept="application/json,.json" style="display:none">
+              <div class="app-menu">
+                <button type="button" class="app-menu-btn" id="map-filter-btn" aria-expanded="false" aria-controls="map-filter-panel">Filter</button>
+                <div class="app-menu-panel app-menu-panel--wide" id="map-filter-panel" hidden>
+                  <div id="map-type-chips"></div>
                 </div>
-                <div id="map-action-status" class="app-map-action-status" aria-live="polite"></div>
               </div>
+              <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-layout-menu" aria-label="Layout actions">
+                <option value="">Layout</option>
+                <option value="relayout">Re-run layout</option>
+                <option value="save">Save layout</option>
+                <option value="load">Load layout</option>
+                <option value="copylink">Copy view link</option>
+              </select>
+              <select class="govuk-select govuk-!-margin-bottom-0 app-menu-select" id="map-export-format" aria-label="Export the map">
+                <option value="">Export</option>
+                <option value="svg">SVG (Figma, Miro)</option>
+                <option value="png">PNG image</option>
+                <option value="csv-pages">Pages and links (CSV)</option>
+                <option value="csv-connections">Connections list (CSV)</option>
+              </select>
+              <input type="file" id="map-load-layout-file" accept="application/json,.json" style="display:none">
+              <div id="map-action-status" class="app-map-action-status" aria-live="polite"></div>
             </div>
-
-            <!-- Content-type filter chips -->
-            <div id="map-type-chips" class="app-chips"></div>
+            <!-- Only when a filter is on: what the map is narrowed to. -->
+            <div id="map-filter-summary" class="app-map-filter-summary" aria-live="polite"></div>
             </div><!-- /#map-options -->
 
             <div class="app-map-graph-wrap">
