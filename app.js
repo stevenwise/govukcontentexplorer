@@ -2932,7 +2932,7 @@ function mapRenderCards() {
   const s = map.stats;
   // Two per row (2x2 for the four cards) so none is left orphaned on its own row.
   const card = (num, label, sub) => `
-    <div class="govuk-grid-column-one-half">
+    <div class="govuk-grid-column-one-half app-map-card-col">
       <div class="app-card">
         <div class="app-num">${num}</div>
         <div class="govuk-body-s govuk-!-margin-bottom-0">${label}</div>

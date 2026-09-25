@@ -85,6 +85,12 @@
     th.app-sort .app-arrow { color: #505a5f; font-size: 0.8em; }
     .app-card { border: 1px solid #b1b4b6; padding: 12px 15px; margin-bottom: 15px; background: #fff; height: 100%; }
     .app-card .app-num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+    /* Map stats: one row of four on wide screens, two by two on tablets, stacked
+       on phones. Flex rows keep the cards in a row the same height. */
+    #map-cards { display: flex; flex-wrap: wrap; }
+    #map-cards > .app-map-card-col { float: none; display: flex; }
+    #map-cards .app-card { flex: 1 1 auto; height: auto; box-sizing: border-box; }
+    @media (min-width: 60em) { #map-cards > .app-map-card-col { width: 25%; } }
     /* Path as a small grey line under the title */
     .app-path { display: block; font-size: 0.75rem; color: #505a5f; white-space: nowrap; }
     .app-inspect { display: inline-block; font-size: 0.75rem; margin-top: 3px; }
